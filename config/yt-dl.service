@@ -1,0 +1,13 @@
+[Unit]
+Description=yt-dl daemon — YouTube downloader backend
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/.local/share/yt-dl/src/app.py
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONPATH=%h/.local/share/yt-dl/src
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=yt-dl
+Comment=YouTube downloader daemon
+Exec=/usr/bin/python3 %h/.local/share/yt-dl/src/app.py
+Icon=applications-multimedia
+Type=Application
+Categories=Network;FileTransfer;
+Terminal=false

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Live Logs - yt-dl{% endblock %}
+{% block content %}
+<h1 style="font-size:24px; font-weight:700; margin-bottom:24px;">Live Logs</h1>
+<div style="display:flex; gap:12px; margin-bottom:24px; flex-wrap: wrap;">
+<select style="width:140px; padding:8px; border-radius:10px; border:1px solid var(--border); background:var(--bg); color:var(--text);" id="log-level" onchange="filterLogs()">
+<option value="ALL">All Levels</option><option value="ERROR">Error</option><option value="WARN">Warn</option><option value="INFO">Info</option><option value="SUCCESS">Success</option><option value="PROGRESS">Progress</option><option value="DEBUG">Debug</option>
+</select>
+<button class="btn btn-secondary" onclick="clearLogs()">Clear Display</button>
+<button class="btn btn-secondary" onclick="toggleAutoScroll()" id="autoscroll-btn">Auto-scroll: ON</button>
+<div style="flex:1"></div>
+<span class="badge"><span class="pulse"></span>Live</span>
+</div>
+<div class="card" style="padding:12px; max-height:70vh; overflow-y:auto;" id="log-container">
+<div id="log-lines"></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='logs.js') }}"></script>
+{% endblock %}

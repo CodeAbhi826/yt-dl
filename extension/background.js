@@ -37,15 +37,6 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       const err = await res.json();
       throw new Error(err.error || 'Failed to queue download');
     }
-
-    const data = await res.json();
-
-    chrome.notifications.create({
-      type: 'basic',
-      iconUrl: 'icons/icon48.png',
-      title: 'yt-dl',
-      message: 'Download queued: ' + (data.job_id || 'unknown')
-    });
   } catch (err) {
     chrome.notifications.create({
       type: 'basic',
@@ -56,47 +47,5 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
 });
 
-// Handle extension icon click
-chrome.action.onClicked.addListener(async (tab) => {
-  const url = tab.url;
-  if (!url.includes('youtube.com/watch') && !url.includes('youtu.be/')) {
-    chrome.notifications.create({
-      type: 'basic',
-      iconUrl: 'icons/icon48.png',
-      title: 'yt-dl',
-      message: 'Not a YouTube video page'
-    });
-    return;
-  }
-
-  const result = await chrome.storage.local.get(['defaultQuality']);
-  const quality = result.defaultQuality || DEFAULT_QUALITY;
-
-  try {
-    const res = await fetch(`${API_URL}/api/add`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, quality })
-    });
-
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to queue download');
-    }
-
-    const data = await res.json();
-    chrome.notifications.create({
-      type: 'basic',
-      iconUrl: 'icons/icon48.png',
-      title: 'yt-dl',
-      message: 'Download queued: ' + (data.job_id || 'unknown')
-    });
-  } catch (err) {
-    chrome.notifications.create({
-      type: 'basic',
-      iconUrl: 'icons/icon48.png',
-      title: 'yt-dl Error',
-      message: err.message || 'Daemon not running'
-    });
-  }
-});
+// Handle extension icon click — now just shows popup (default_popup in manifest)
+// The popup handles "Download this page" + quality selection

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Settings - yt-dl{% endblock %}
+{% block content %}
+<h1 style="font-size:24px; font-weight:700; margin-bottom:24px;">Settings</h1>
+<div class="grid grid-2">
+<div class="card">
+<div class="card-title">Download</div>
+<div class="form-group">
+<label class="form-label">Download Directory</label>
+<input type="text" class="form-input" id="download_dir" value="{{ download_dir }}">
+</div>
+<div class="form-group">
+<label class="form-label">Default Quality</label>
+<select class="form-select" id="default_quality">
+{% for q in qualities %}<option value="{{ q }}" {% if q == default_quality %}selected{% endif %}>{{ q }}</option>{% endfor %}
+</select>
+</div>
+<div class="form-group">
+<label class="form-label">Concurrent Downloads</label>
+<input type="number" class="form-input" id="concurrent_limit" value="{{ concurrent_limit }}" min="1" max="10">
+</div>
+</div>
+<div class="card">
+<div class="card-title">Embed Options</div>
+<div class="form-group">
+<label class="checkbox-group"><input type="checkbox" id="embed_metadata" {% if embed_metadata %}checked{% endif %}><span>Embed metadata</span></label>
+</div>
+<div class="form-group">
+<label class="checkbox-group"><input type="checkbox" id="embed_thumbnail" {% if embed_thumbnail %}checked{% endif %}><span>Embed thumbnail</span></label>
+</div>
+<div class="form-group">
+<label class="checkbox-group"><input type="checkbox" id="embed_chapters" {% if embed_chapters %}checked{% endif %}><span>Embed chapters</span></label>
+</div>
+<div class="form-group">
+<label class="checkbox-group"><input type="checkbox" id="embed_subs" {% if embed_subs %}checked{% endif %}><span>Embed subtitles</span></label>
+</div>
+</div>
+</div>
+<div style="margin-top:24px; display:flex; gap:12px;">
+<button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+</div>
+<div style="margin-top:24px; padding:20px; background:#1a1a1a; border-radius:12px; border:1px solid #333;">
+<h3 style="font-size:14px; font-weight:600; color:#ff2d20; margin:0 0 16px 0; text-transform:uppercase; letter-spacing:1px;">Danger Zone</h3>
+<button onclick="if(confirm('Clear all download history? This cannot be undone.')){fetch('/api/stats/reset',{method:'POST'}).then(r=>r.json()).then(d=>alert('Cleared '+d.deleted_records+' records'))}" style="background:#dc2626;color:#fff;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:12px;text-transform:uppercase;letter-spacing:1px;font-weight:600;">Clear Download History</button>
+<p style="font-size:11px; color:#666; margin:12px 0 0 0;">Removes all records from the database.</p>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='settings.js') }}"></script>
+{% endblock %}

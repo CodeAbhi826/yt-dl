@@ -23,15 +23,12 @@ _cancel_callback = None
 
 
 def set_action_callbacks(retry_fn=None, cancel_fn=None):
-    """Set callbacks for notification action buttons."""
     global _retry_callback, _cancel_callback
     _retry_callback = retry_fn
     _cancel_callback = cancel_fn
 
 
 class NotificationManager:
-    """KDE Plasma 6.7 compatible notification manager."""
-
     def __init__(self):
         self._active = {}
         self._popup_shown = {}
@@ -58,7 +55,6 @@ class NotificationManager:
             self._iface = None
 
     def _on_action(self, notification_id, action_key):
-        """Handle notification action clicks."""
         job_id = None
         for jid, nid in self._active.items():
             if nid == notification_id:
@@ -83,8 +79,9 @@ class NotificationManager:
         hints["desktop-entry"] = dbus.String("yt-dl")
         hints["category"] = dbus.String("transfer")
         hints["urgency"] = dbus.Byte(2 if state == "failed" else 1)
-        hints["resident"] = dbus.Boolean(True)
-        hints["x-kde-persistence"] = dbus.Boolean(True)
+        if state in ("downloading", "queued"):
+            hints["resident"] = dbus.Boolean(True)
+            hints["x-kde-persistence"] = dbus.Boolean(True)
         if state == "downloading" and progress is not None:
             hints["value"] = dbus.Int32(int(progress))
         return hints
@@ -101,7 +98,7 @@ class NotificationManager:
             actions.extend(["dismiss", "Dismiss"])
         return actions
 
-    def _notify(self, job_id, state, title, body, progress=None, force_popup=False):
+    def _notify(self, job_id, state, title, body, progress=None, timeout=3000):
         if not self._iface:
             return None
         try:
@@ -109,11 +106,10 @@ class NotificationManager:
             icon = STATE_ICONS.get(state, APP_ICON)
             actions = self._make_actions(state)
             hints = self._make_hints(job_id, state, progress)
-            timeout = dbus.Int32(0 if state == "failed" else 3000)
 
             nid = self._iface.Notify(
                 APP_NAME, replaces_id, icon, f"yt-dl: {title}", body,
-                actions, hints, timeout
+                actions, hints, dbus.Int32(timeout)
             )
             self._active[job_id] = int(nid)
             return int(nid)
@@ -131,22 +127,25 @@ class NotificationManager:
 
     def show_queued(self, job_id, title, quality):
         self._notify(job_id, "queued", title or "YouTube Video",
-                     f"Quality: {quality}\nQueued for download", force_popup=True)
+                     f"Quality: {quality}\nQueued for download", timeout=3000)
 
     def update_downloading(self, job_id, title, quality, progress, speed, eta):
         body = f"Quality: {quality}\n{speed or '0 KiB/s'} | ETA: {eta or 'Unknown'}"
         if progress is not None:
             body += f"\nProgress: {progress:.1f}%"
-        self._notify(job_id, "downloading", title or "YouTube Video", body, progress=progress)
+        is_first = job_id not in self._active
+        timeout = 5000 if is_first else 0
+        self._notify(job_id, "downloading", title or "YouTube Video", body,
+                     progress=progress, timeout=timeout)
 
     def show_done(self, job_id, title, quality, file_path):
         self._notify(job_id, "done", title or "YouTube Video",
-                     f"Quality: {quality}\nSaved to: {file_path or 'Unknown'}", force_popup=True)
+                     f"Quality: {quality}\nSaved to: {file_path or 'Unknown'}", timeout=5000)
 
     def show_failed(self, job_id, title, quality, error):
         self._notify(job_id, "failed", title or "YouTube Video",
-                     f"Error: {error or 'Unknown error'}", force_popup=True)
+                     f"Error: {error or 'Unknown error'}", timeout=0)
 
     def show_cancelled(self, job_id, title, quality):
         self._notify(job_id, "cancelled", title or "YouTube Video",
-                     f"Quality: {quality}\nCancelled by user", force_popup=True)
+                     f"Quality: {quality}\nCancelled by user", timeout=3000)

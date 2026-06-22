@@ -5,6 +5,7 @@ import os
 import sys
 import json
 import time
+import signal
 import sqlite3
 import subprocess
 import threading
@@ -22,16 +23,16 @@ active_jobs = {}
 job_queue = []
 queue_lock = threading.Lock()
 notification_manager = None
+_queue_event = threading.Event()
+_worker_thread = None
 
 
 def set_notification_manager(nm):
-    """Set the notification manager instance."""
     global notification_manager
     notification_manager = nm
 
 
 class DownloadJob:
-    """Represents an active download."""
     def __init__(self, row):
         self.job_id = row["job_id"]
         self.video_id = row["video_id"]
@@ -43,30 +44,60 @@ class DownloadJob:
         self.speed = row["speed"]
         self.eta = row["eta"]
         self.file_path = row["file_path"]
+        self.file_size = row["file_size"] or 0
         self.error_message = row["error_message"]
         self.proc = None
         self.position = 0
+        self.last_saved_progress = 0.0
+        self.last_update_time = time.time()
 
 
 def save_job(job):
-    """Save job state to database."""
-    db = get_db()
-    db.execute("""
-        UPDATE downloads SET
-            title=?, status=?, progress=?, speed=?, eta=?,
-            file_path=?, error_message=?, started_at=?, completed_at=?
-        WHERE job_id=?
-    """, (job.title, job.status, job.progress, job.speed, job.eta,
-          job.file_path, job.error_message,
-          datetime.now().isoformat() if job.status == "downloading" else None,
-          datetime.now().isoformat() if job.status in ("done", "failed", "cancelled") else None,
-          job.job_id))
-    db.commit()
-    db.close()
+    db = None
+    try:
+        db = get_db()
+        db.execute("""
+            UPDATE downloads SET
+                title=?, status=?, progress=?, speed=?, eta=?,
+                file_path=?, file_size=?, error_message=?,
+                started_at=?, completed_at=?
+            WHERE job_id=?
+        """, (job.title, job.status, job.progress, job.speed, job.eta,
+              job.file_path, job.file_size, job.error_message,
+              datetime.now().isoformat() if job.status == "downloading" else None,
+              datetime.now().isoformat() if job.status in ("done", "failed", "cancelled") else None,
+              job.job_id))
+        db.commit()
+    except Exception as e:
+        logger.error(f"Failed to save job {job.job_id}: {e}")
+    finally:
+        if db:
+            db.close()
+
+
+def _start_worker():
+    global _worker_thread
+    if _worker_thread is None or not _worker_thread.is_alive():
+        _worker_thread = threading.Thread(target=_worker_loop, name="process-queue", daemon=True)
+        _worker_thread.start()
+
+
+def _worker_loop():
+    while True:
+        _queue_event.wait()
+        _queue_event.clear()
+        try:
+            _process_queue()
+        except Exception as e:
+            logger.exception(f"Queue processing error: {e}")
 
 
 def process_queue():
-    """Process the download queue."""
+    _queue_event.set()
+    _start_worker()
+
+
+def _process_queue():
     cfg = load_config()
     concurrent_limit = cfg.get("concurrent_limit", 3)
     download_dir = Path(cfg.get("download_dir", "/mnt/storage/YouTube"))
@@ -76,31 +107,33 @@ def process_queue():
         if active_count >= concurrent_limit:
             return
 
-        # Get queued jobs from DB
         db = get_db()
-        rows = db.execute(
-            "SELECT * FROM downloads WHERE status='queued' ORDER BY created_at LIMIT ?",
-            (concurrent_limit - active_count,)
-        ).fetchall()
-        db.close()
+        try:
+            rows = db.execute(
+                "SELECT * FROM downloads WHERE status='queued' ORDER BY created_at LIMIT ?",
+                (concurrent_limit - active_count,)
+            ).fetchall()
+        finally:
+            db.close()
 
         for row in rows:
             job = DownloadJob(row)
             job.status = "downloading"
             active_jobs[job.job_id] = job
             save_job(job)
-            threading.Thread(target=run_download, args=(job, download_dir), daemon=True).start()
+            threading.Thread(
+                target=run_download, args=(job, download_dir),
+                name=f"download-{job.job_id[:8]}", daemon=True
+            ).start()
 
             if notification_manager:
                 notification_manager.show_queued(job.job_id, job.title, job.quality)
 
 
 def run_download(job, download_dir):
-    """Execute yt-dlp for a single job."""
     cfg = load_config()
     format_str = QUALITY_MAP.get(job.quality, QUALITY_MAP["720p"])
 
-    # Extract video info first
     try:
         info_cmd = ["yt-dlp", "--format", format_str, "--dump-json", "--no-download", job.url]
         result = subprocess.run(info_cmd, capture_output=True, text=True, timeout=30)
@@ -111,12 +144,14 @@ def run_download(job, download_dir):
     except Exception as e:
         logger.warning(f"Info extraction failed: {e}")
 
-    # Build download command
     download_cmd = [
         "yt-dlp",
         "--format", format_str,
         "--merge-output-format", "mp4",
     ]
+
+    if job.quality == "audio":
+        download_cmd.extend(["--extract-audio", "--audio-format", "mp3"])
 
     if cfg.get("embed_thumbnail"):
         download_cmd.append("--embed-thumbnail")
@@ -127,10 +162,18 @@ def run_download(job, download_dir):
     if cfg.get("embed_subs"):
         download_cmd.extend(["--embed-subs", "--sub-langs", "en", "--convert-subs", "srt"])
 
+    progress_template = (
+        '{"percent":"%(progress._percent_str)s",'
+        '"speed":"%(progress._speed_str)s",'
+        '"eta":"%(progress._eta_str)s",'
+        '"filename":"%(info.filename)s"}'
+    )
+
     download_cmd.extend([
         "--downloader", "aria2c",
         "--downloader-args", "aria2c:-x 16 -s 16 -k 1M",
         "--newline", "--progress", "--no-simulate",
+        "--progress-template", progress_template,
         "-P", str(download_dir),
         "-o", "%(title)s [%(id)s].%(ext)s",
         job.url,
@@ -147,6 +190,7 @@ def run_download(job, download_dir):
             text=True,
             bufsize=1,
             cwd=str(download_dir),
+            start_new_session=True,
         )
         job.proc = proc
 
@@ -155,21 +199,39 @@ def run_download(job, download_dir):
             if not line:
                 continue
 
-            if "[download]" in line and "%" in line:
+            if line.startswith("{") and line.endswith("}"):
                 try:
-                    pct_str = line.split("%")[0].split()[-1]
-                    job.progress = float(pct_str)
-                    if "at " in line and "/s" in line:
-                        job.speed = line.split("at ")[1].split(" ETA")[0].strip()
-                    if "ETA " in line:
-                        job.eta = line.split("ETA ")[1].strip()
-                    save_job(job)
-                    if notification_manager:
-                        notification_manager.update_downloading(
-                            job.job_id, job.title, job.quality, job.progress, job.speed, job.eta
-                        )
+                    data = json.loads(line)
+                    percent_str = data.get("percent", "0%")
+                    job.progress = float(percent_str.rstrip("%"))
+                    job.speed = data.get("speed", "")
+                    job.eta = data.get("eta", "")
+
+                    filename = data.get("filename", "")
+                    if filename and not job.file_path:
+                        job.file_path = filename
+
+                    now = time.time()
+                    progress_changed = abs(job.progress - job.last_saved_progress) >= 1.0
+                    time_elapsed = now - job.last_update_time >= 1.0
+
+                    if progress_changed or time_elapsed:
+                        save_job(job)
+                        job.last_saved_progress = job.progress
+                        job.last_update_time = now
+                        if notification_manager:
+                            notification_manager.update_downloading(
+                                job.job_id, job.title, job.quality,
+                                job.progress, job.speed, job.eta
+                            )
                 except Exception as e:
-                    logger.debug(f"Parse error: {e}")
+                    logger.debug(f"Progress parse error: {e}")
+                continue
+
+            if line.startswith("[download] Destination: "):
+                dest = line.split("[download] Destination: ")[-1].strip()
+                job.file_path = dest
+                continue
 
             if "ERROR:" in line:
                 job.error_message = line
@@ -177,19 +239,22 @@ def run_download(job, download_dir):
 
         proc.wait()
 
-        # Find downloaded file
-        video_files = []
-        for ext in [".mp4", ".mkv", ".webm"]:
-            video_files.extend(download_dir.glob(f"*{job.video_id}*{ext}"))
-        if not video_files:
-            safe_title = "".join(c for c in (job.title or "") if c.isalnum() or c in " _-")[:30]
-            for ext in [".mp4", ".mkv", ".webm"]:
-                video_files.extend(download_dir.glob(f"*{safe_title}*{ext}"))
+        if not job.file_path or not os.path.exists(job.file_path):
+            video_files = []
+            for ext in [".mp4", ".mkv", ".webm", ".mp3", ".m4a"]:
+                video_files.extend(download_dir.glob(f"*{job.video_id}*{ext}"))
+            if not video_files:
+                safe_title = "".join(c for c in (job.title or "") if c.isalnum() or c in " _-")[:30]
+                for ext in [".mp4", ".mkv", ".webm", ".mp3", ".m4a"]:
+                    video_files.extend(download_dir.glob(f"*{safe_title}*{ext}"))
+            if video_files:
+                job.file_path = str(video_files[0])
 
-        if proc.returncode == 0 and video_files:
+        if proc.returncode == 0 and job.file_path:
             job.status = "done"
             job.progress = 100.0
-            job.file_path = str(video_files[0])
+            if os.path.exists(job.file_path):
+                job.file_size = os.path.getsize(job.file_path)
             logger.info(f"Completed: {job.file_path}")
         else:
             job.status = "failed"
@@ -214,21 +279,22 @@ def run_download(job, download_dir):
             elif job.status == "failed":
                 notification_manager.show_failed(job.job_id, job.title, job.quality, job.error_message)
 
-        # Start next job
-        threading.Thread(target=process_queue, daemon=True).start()
+        process_queue()
 
 
 def cancel_job(job_id: str) -> bool:
-    """Cancel a queued or active job."""
     with queue_lock:
         if job_id in active_jobs:
             job = active_jobs[job_id]
             if job.proc and job.proc.poll() is None:
-                job.proc.terminate()
                 try:
-                    job.proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    job.proc.kill()
+                    os.killpg(os.getpgid(job.proc.pid), signal.SIGTERM)
+                    try:
+                        job.proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(os.getpgid(job.proc.pid), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
             job.status = "cancelled"
             del active_jobs[job_id]
             save_job(job)
@@ -236,24 +302,48 @@ def cancel_job(job_id: str) -> bool:
                 notification_manager.show_cancelled(job.job_id, job.title, job.quality)
             return True
 
-    # Cancel queued job in DB
     db = get_db()
-    c = db.execute("UPDATE downloads SET status='cancelled' WHERE job_id=? AND status='queued'", (job_id,))
-    db.commit()
-    db.close()
-    return c.rowcount > 0
+    try:
+        c = db.execute("UPDATE downloads SET status='cancelled' WHERE job_id=? AND status='queued'", (job_id,))
+        db.commit()
+        return c.rowcount > 0
+    finally:
+        db.close()
+
+
+def pause_job(job_id: str) -> bool:
+    with queue_lock:
+        if job_id in active_jobs:
+            job = active_jobs[job_id]
+            if job.proc and job.proc.poll() is None:
+                os.killpg(os.getpgid(job.proc.pid), signal.SIGSTOP)
+                logger.info(f"Paused job: {job_id}")
+                return True
+    return False
+
+
+def resume_job(job_id: str) -> bool:
+    with queue_lock:
+        if job_id in active_jobs:
+            job = active_jobs[job_id]
+            if job.proc and job.proc.poll() is None:
+                os.killpg(os.getpgid(job.proc.pid), signal.SIGCONT)
+                logger.info(f"Resumed job: {job_id}")
+                return True
+    return False
 
 
 def retry_job(job_id: str) -> bool:
-    """Retry a failed job."""
     db = get_db()
-    c = db.execute("""
-        UPDATE downloads SET status='queued', progress=0, error_message=NULL,
-        retry_count=retry_count+1 WHERE job_id=?
-    """, (job_id,))
-    db.commit()
-    db.close()
-    if c.rowcount > 0:
-        threading.Thread(target=process_queue, daemon=True).start()
-        return True
-    return False
+    try:
+        c = db.execute("""
+            UPDATE downloads SET status='queued', progress=0, error_message=NULL,
+            retry_count=retry_count+1 WHERE job_id=?
+        """, (job_id,))
+        db.commit()
+        if c.rowcount > 0:
+            process_queue()
+            return True
+        return False
+    finally:
+        db.close()

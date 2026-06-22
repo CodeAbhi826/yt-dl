@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ theme }}">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}yt-dl{% endblock %}</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+{% block extra_head %}{% endblock %}
+</head>
+<body>
+<nav class="nav">
+<a href="/" class="nav-brand">yt-dl</a>
+<div class="nav-links">
+<a href="/" class="nav-link {{ 'active' if active == 'dashboard' else '' }}">Queue</a>
+<a href="/stats" class="nav-link {{ 'active' if active == 'stats' else '' }}">Stats</a>
+<a href="/logs" class="nav-link {{ 'active' if active == 'logs' else '' }}">Logs</a>
+<a href="/search" class="nav-link {{ 'active' if active == 'search' else '' }}">Search</a>
+<a href="/settings" class="nav-link {{ 'active' if active == 'settings' else '' }}">Settings</a>
+</div>
+<div class="nav-actions">
+<button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+</button>
+</div>
+</nav>
+<main class="container">
+{% block content %}{% endblock %}
+</main>
+<div id="toast" class="toast"></div>
+<script src="{{ url_for('static', filename='theme.js') }}"></script>
+<script src="{{ url_for('static', filename='toast.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

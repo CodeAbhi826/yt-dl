@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Search - yt-dl{% endblock %}
+{% block content %}
+<h1 style="font-size:24px; font-weight:700; margin-bottom:24px;">Search Downloads</h1>
+<div style="display:flex; gap:12px; margin-bottom:24px; flex-wrap: wrap;">
+<input type="text" style="flex:1; min-width:250px; padding:12px 16px; border-radius:10px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-family:var(--font); font-size:14px;" id="search-input" placeholder="Search by title, video ID, or URL..." onkeyup="if(event.key==='Enter')doSearch()">
+<select style="width:140px; padding:8px; border-radius:10px; border:1px solid var(--border); background:var(--bg); color:var(--text);" id="status-filter"><option value="">All Status</option><option value="queued">Queued</option><option value="downloading">Downloading</option><option value="completed">Completed</option><option value="failed">Failed</option><option value="cancelled">Cancelled</option></select>
+<select style="width:140px; padding:8px; border-radius:10px; border:1px solid var(--border); background:var(--bg); color:var(--text);" id="quality-filter"><option value="">All Quality</option>{% for q in qualities %}<option value="{{ q }}">{{ q }}</option>{% endfor %}</select>
+<select style="width:140px; padding:8px; border-radius:10px; border:1px solid var(--border); background:var(--bg); color:var(--text);" id="date-filter"><option value="">All Time</option><option value="today">Today</option><option value="week">This Week</option><option value="month">This Month</option></select>
+<button class="btn btn-primary" onclick="doSearch()">Search</button>
+</div>
+<div class="card">
+<div style="overflow-x:auto;">
+<table>
+<thead><tr><th>Video</th><th>Quality</th><th>Status</th><th>Progress</th><th>Date</th><th>Actions</th></tr></thead>
+<tbody id="search-results"><tr><td colspan="6" style="text-align:center; padding:40px; color:var(--text-secondary);">Enter a search term to find downloads</td></tr></tbody>
+</table>
+</div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='search.js') }}"></script>
+{% endblock %}

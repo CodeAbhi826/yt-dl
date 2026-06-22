@@ -89,6 +89,10 @@ def init_db():
             c.execute(f"ALTER TABLE downloads ADD COLUMN {col} {dtype}")
             logger.info(f"Migrated DB: added column {col}")
 
+    c.execute("CREATE INDEX IF NOT EXISTS idx_downloads_status ON downloads(status)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_downloads_created_at ON downloads(created_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_downloads_video_id ON downloads(video_id)")
+
     conn.commit()
     conn.close()
 

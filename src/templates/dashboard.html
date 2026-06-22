@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Queue - yt-dl{% endblock %}
+{% block content %}
+<div class="add-url-card card">
+  <div class="add-url-row">
+    <input type="text" id="url-input" class="form-input url-input" placeholder="Paste YouTube URL here..." onkeyup="if(event.key==='Enter')addUrl()">
+    <select id="quality-select" class="form-select quality-select">
+      <option value="best">Best</option>
+      <option value="2160p">4K</option>
+      <option value="1440p">1440p</option>
+      <option value="1080p" selected>1080p</option>
+      <option value="720p">720p</option>
+      <option value="480p">480p</option>
+      <option value="360p">360p</option>
+      <option value="audio">Audio only</option>
+    </select>
+    <button class="btn btn-primary" onclick="addUrl()">Download</button>
+  </div>
+  <div id="add-error" class="add-error hidden"></div>
+</div>
+
+<div class="filter-tabs" id="filter-tabs">
+  <button class="filter-tab active" data-filter="all">All</button>
+  <button class="filter-tab" data-filter="downloading">Downloading</button>
+  <button class="filter-tab" data-filter="queued">Queued</button>
+  <button class="filter-tab" data-filter="completed">Completed</button>
+  <button class="filter-tab" data-filter="failed">Failed</button>
+</div>
+
+<div id="bulk-bar" class="bulk-bar hidden">
+  <span id="bulk-count" style="font-size:13px; font-weight:600;">0 selected</span>
+  <div style="flex:1"></div>
+  <button class="btn btn-secondary btn-sm" onclick="bulkRetry()">Retry Selected</button>
+  <button class="btn btn-danger btn-sm" onclick="bulkDelete()">Delete Selected</button>
+  <button class="btn btn-secondary btn-sm" onclick="clearSelection()">Clear</button>
+</div>
+
+<div id="queue-grid" class="card-grid"></div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+{% endblock %}

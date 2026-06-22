@@ -15,10 +15,12 @@ if ! curl -s http://localhost:5000/api/health > /dev/null 2>&1; then
     sleep 2
 fi
 
-QUALITY=$(python3 -c "import json; print(json.load(open('$HOME/.local/share/yt-dl/config.json')).get('default_quality','720p'))")
-JSON_BODY=$(python3 -c "import json; d={'url':'$URL','quality':'$QUALITY'}; print(json.dumps(d))")
+QUALITY=$(python3 -c "import json, os; cfg = json.load(open(os.path.expanduser('~/.local/share/yt-dl/config.json'))); print(cfg.get('default_quality','720p'))")
 
-curl -s -X POST http://localhost:5000/api/add     -H "Content-Type: application/json"     -d "$JSON_BODY"     > /dev/null
+curl -s -X POST http://localhost:5000/api/add \
+    -H "Content-Type: application/json" \
+    -d "$(python3 -c "import json, sys; d={'url': sys.argv[1], 'quality': sys.argv[2]}; print(json.dumps(d))" "$URL" "$QUALITY")" \
+    > /dev/null
 
 notify-send --app-name=yt-dl "yt-dl" "Download queued
 $URL"

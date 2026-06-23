@@ -10,9 +10,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.querySelectorAll('.quality-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       await chrome.storage.local.set({ defaultQuality: btn.dataset.q });
-      document.getElementById('status').textContent = 'Default quality: ' + btn.dataset.q;
     });
   });
-
-  document.getElementById('status').textContent = 'Default quality: ' + current;
 });

@@ -3,30 +3,209 @@
 <head>
 <meta charset="UTF-8">
 <style>
-:root { --bg: #0a0a0a; --card: #141414; --text: #e5e5e5; --text-secondary: #888; --accent: #ff2d20; --border: #2a2a2a; }
+:root {
+  --bg: #111111;
+  --surface: #1b1b1b;
+  --text: #ffffff;
+  --text-secondary: #a1a1aa;
+  --label: #8b8b8b;
+  --accent: #ff2d20;
+  --success: #22c55e;
+  --divider: rgba(255,255,255,0.05);
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { width: 320px; background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; padding: 16px; }
-h1 { font-size: 16px; font-weight: 700; color: var(--accent); margin-bottom: 16px; }
-.quality-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
-.quality-btn { padding: 8px; border: 1px solid var(--border); background: var(--card); color: var(--text); border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 500; text-align: center; }
-.quality-btn:hover, .quality-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
-.status { font-size: 12px; color: var(--text-secondary); text-align: center; padding: 12px; background: var(--card); border-radius: 8px; border: 1px solid var(--border); }
+
+body {
+  width: 280px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', -apple-system, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+  font-smooth: antialiased;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  border-radius: 22px;
+  overflow: hidden;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+}
+
+.container { padding: 16px 18px; }
+
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.icon-wrap {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-wrap svg { width: 20px; height: 20px; }
+
+.title-area { flex: 1; }
+
+.title {
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  flex-shrink: 0;
+}
+
+.status-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.menu-btn {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #a1a1aa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.menu-btn svg { width: 18px; height: 18px; }
+
+/* Divider */
+.divider {
+  height: 1px;
+  background: var(--divider);
+  margin: 14px 0;
+}
+
+/* Label */
+.label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--label);
+  margin-bottom: 10px;
+}
+
+/* Quality Grid */
+.quality-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.quality-btn {
+  height: 54px;
+  background: var(--surface);
+  color: #d4d4d4;
+  border: none;
+  border-radius: 18px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  text-align: center;
+  transition: background 150ms ease, box-shadow 150ms ease, color 150ms ease;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.25);
+}
+
+.quality-btn:hover {
+  background: #242424;
+}
+
+.quality-btn.active {
+  background: var(--accent);
+  color: white;
+  box-shadow: 0 8px 24px rgba(255,45,32,0.35);
+}
+
+/* Audio Row */
+.audio-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.quality-btn.audio-btn {
+  width: 120px;
+}
 </style>
 </head>
 <body>
-<h1>yt-dl</h1>
-<div class="quality-grid">
-<button class="quality-btn" data-q="144p">144p</button>
-<button class="quality-btn" data-q="240p">240p</button>
-<button class="quality-btn" data-q="360p">360p</button>
-<button class="quality-btn" data-q="480p">480p</button>
-<button class="quality-btn" data-q="720p">720p</button>
-<button class="quality-btn" data-q="1080p">1080p</button>
-<button class="quality-btn" data-q="1440p">1440p</button>
-<button class="quality-btn" data-q="2160p">2160p</button>
-<button class="quality-btn" data-q="audio">Audio</button>
+<div class="container">
+  <!-- Header -->
+  <div class="header">
+    <div class="icon-wrap">
+      <svg fill="none" viewBox="0 0 24 24" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 5v14M5 12l7 7 7-7"/>
+      </svg>
+    </div>
+    <div class="title-area">
+      <div class="title">yt-dl</div>
+      <div class="status-row">
+        <span class="status-dot"></span>
+        <span class="status-text">Connected</span>
+      </div>
+    </div>
+    <button class="menu-btn" aria-label="Menu">
+      <svg fill="currentColor" viewBox="0 0 24 24">
+        <circle cx="12" cy="5" r="1.5"/>
+        <circle cx="12" cy="12" r="1.5"/>
+        <circle cx="12" cy="19" r="1.5"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Divider -->
+  <div class="divider"></div>
+
+  <!-- Label -->
+  <div class="label">Default Quality</div>
+
+  <!-- Grid -->
+  <div class="quality-grid">
+    <button class="quality-btn" data-q="144p">144p</button>
+    <button class="quality-btn" data-q="240p">240p</button>
+    <button class="quality-btn" data-q="360p">360p</button>
+    <button class="quality-btn" data-q="480p">480p</button>
+    <button class="quality-btn" data-q="720p">720p</button>
+    <button class="quality-btn" data-q="1080p">1080p</button>
+    <button class="quality-btn" data-q="1440p">1440p</button>
+    <button class="quality-btn" data-q="2160p">2160p</button>
+  </div>
+
+  <!-- Audio Button -->
+  <div class="audio-row">
+    <button class="quality-btn audio-btn" data-q="audio">Audio</button>
+  </div>
 </div>
-<div class="status" id="status">Click a quality to set default</div>
+
 <script src="popup.js"></script>
 </body>
 </html>

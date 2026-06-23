@@ -1,35 +1,48 @@
 # yt-dl
 
-[![GitHub release](https://img.shields.io/github/v/release/CodeAbhi826/yt-dl?color=ff4d36&labelColor=1a1a1a&logo=github)](https://github.com/CodeAbhi826/yt-dl/releases)
-[![GitHub stars](https://img.shields.io/github/stars/CodeAbhi826/yt-dl?color=ffcb47&labelColor=1a1a1a&logo=github)](https://github.com/CodeAbhi826/yt-dl/stargazers)
-[![License](https://img.shields.io/github/license/CodeAbhi826/yt-dl?color=22c55e&labelColor=1a1a1a)](LICENSE)
+[![GitHub release](https://img.shields.io/github/v/release/CodeAbhi826/yt-dl?color=ff2d20&labelColor=1a1a1a&logo=github)](https://github.com/CodeAbhi826/yt-dl/releases)
+[![GitHub stars](https://img.shields.io/github/stars/CodeAbhi826/yt-dl?color=22c55e&labelColor=1a1a1a&logo=github)](https://github.com/CodeAbhi826/yt-dl/stargazers)
+[![License](https://img.shields.io/github/license/CodeAbhi826/yt-dl?color=3b82f6&labelColor=1a1a1a)](LICENSE)
+[![Docker](https://img.shields.io/badge/docker-ready-2496ed?labelColor=1a1a1a&logo=docker)](https://github.com/CodeAbhi826/yt-dl/pkgs/container/yt-dl)
 
-Self-hosted YouTube download daemon for Linux. Right-click any YouTube link in your browser, select quality, and the video downloads automatically — with desktop notifications and a real-time web dashboard.
+Self-hosted YouTube download daemon. Right-click any link, pick quality, and it downloads — with desktop notifications and a live dashboard.
 
 ---
 
 ## Features
 
-- **Right-click → Download** — Browser extension adds "Download with yt-dl" to YouTube context menus
-- **Quality selector** — 144p to 2160p plus audio-only MP3, selectable from the extension popup
-- **Real-time dashboard** — Live queue with progress bars, speed, ETA via SSE
-- **Desktop notifications** — Custom toast popups when browser is open, D-Bus fallback when closed
+- **Right-click → Download** — Browser extension for YouTube context menus
+- **144p to 2160p + audio MP3** — Quality selector in the extension popup
+- **Live dashboard** — SSE-driven queue with progress bars, speed, ETA
+- **Desktop notifications** — Extension toasts (browser open) or D-Bus (Linux)
+- **Playlist support** — Auto-detects playlists, creates individual jobs, skips duplicates
+- **Cookies support** — Upload cookies.txt in Settings for age-restricted content
+- **Auto-update yt-dlp** — Background updater runs every 24h
+- **Media server naming** — Configurable output patterns (`%(channel)s/%(title)s.%(ext)s`)
+- **API key auth** — Optional `YTDL_API_KEY` env var for securing endpoints
 - **Concurrent downloads** — Configurable parallel downloads (default 3)
-- **Download history & stats** — 7-day bar chart, success rate, total data downloaded
-- **Live logs** — Real-time log stream for debugging
-- **systemd integration** — Runs as a user service, starts on boot
+- **Download history & stats** — 7-day bar chart, success rate, total data
+- **Live logs** — Real-time log stream with level filtering
+- **Docker** — Official image with ffmpeg bundled
 
 ---
 
 ## Quick Start
 
-### Prerequisites
+### Docker (recommended)
 
 ```bash
-pip install --user flask dbus-python yt-dlp
+git clone https://github.com/CodeAbhi826/yt-dl.git
+cd yt-dl
+docker compose up -d
 ```
 
-### Install
+Then load the extension:
+1. Open `chrome://extensions`
+2. Enable **Developer mode**
+3. Click **Load unpacked** and select `extension/`
+
+### Native (Linux)
 
 ```bash
 git clone https://github.com/CodeAbhi826/yt-dl.git
@@ -37,16 +50,7 @@ cd yt-dl
 bash install.sh
 ```
 
-Then load the extension in your browser:
-1. Open `chrome://extensions`
-2. Enable **Developer mode**
-3. Click **Load unpacked** and select `~/.local/share/yt-dl/extension/`
-
-### Usage
-
-- **Right-click** any YouTube link → **Download with yt-dl**
-- **Click the extension icon** on a YouTube page → select quality
-- Open `http://localhost:5000` to monitor downloads
+Open `http://localhost:5000` to monitor downloads.
 
 ---
 
@@ -56,44 +60,78 @@ Then load the extension in your browser:
 Browser Extension  ──►  Flask Daemon  ──►  yt-dlp
                         (port 5000)
                         SQLite + SSE
-                        D-Bus notifications
+                        Notifications (extension → D-Bus fallback)
 ```
-
----
-
-## API
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `GET /api/queue` | GET | List all downloads |
-| `GET /api/queue/stream` | GET | SSE live queue |
-| `POST /api/add` | POST | Add download `{url, quality}` |
-| `POST /api/jobs/<id>/retry` | POST | Retry failed job |
-| `POST /api/jobs/<id>/cancel` | POST | Cancel active job |
-| `DELETE /api/jobs/<id>` | DELETE | Delete job and file |
-| `POST /api/bulk/delete` | POST | Bulk delete `{ids: [...]}` |
-| `POST /api/bulk/retry` | POST | Bulk retry `{ids: [...]}` |
-| `GET /api/settings` | GET | Get config |
-| `PUT /api/settings` | PUT | Update config |
-| `POST /api/settings/reset` | POST | Reset config |
-| `GET /api/stats` | GET | Download statistics |
-| `POST /api/stats/reset` | POST | Clear history |
-| `GET /api/info` | GET | Server status |
-| `POST /api/extension/heartbeat` | POST | Extension heartbeat |
 
 ---
 
 ## Configuration
 
-```json
-{
-  "download_dir": "/mnt/storage/YouTube",
-  "concurrent_limit": 3,
-  "theme": "dark"
-}
-```
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `download_dir` | `/mnt/storage/YouTube` | Where videos are saved |
+| `concurrent_limit` | 3 | Max parallel downloads |
+| `theme` | `dark` | UI theme (`dark` / `light`) |
+| `output_pattern` | `%(title)s.%(ext)s` | yt-dlp output template |
+| `embed_metadata` | `true` | Embed video metadata |
+| `embed_thumbnail` | `true` | Embed thumbnail |
+| `embed_chapters` | `true` | Embed chapters |
+| `embed_subs` | `true` | Embed English subtitles |
 
-Edit at `http://localhost:5000/settings` or directly in `~/.local/share/yt-dl/config.json`.
+Edit at `http://localhost:5000/settings`.
+
+---
+
+## API
+
+### Queue
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/queue` | List all downloads |
+| GET | `/api/queue/stream` | SSE live queue |
+| POST | `/api/add` | Add download `{url, quality}` |
+
+### Jobs
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/jobs/<id>` | Get job details |
+| POST | `/api/jobs/<id>/retry` | Retry failed job |
+| POST | `/api/jobs/<id>/cancel` | Cancel active job |
+| DELETE | `/api/jobs/<id>` | Delete job and file |
+| POST | `/api/bulk/retry` | Bulk retry `{ids}` |
+| POST | `/api/bulk/delete` | Bulk delete `{ids}` |
+
+### Settings
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/settings` | Get config |
+| PUT | `/api/settings` | Update config |
+| POST | `/api/settings/reset` | Reset to defaults |
+| GET | `/api/settings/cookies` | Check cookies status |
+| POST | `/api/settings/cookies` | Upload cookies.txt |
+| DELETE | `/api/settings/cookies` | Remove cookies |
+
+### Stats & System
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/stats` | Download statistics |
+| POST | `/api/stats/reset` | Clear history |
+| GET | `/api/info` | Server status + auth info |
+| GET | `/api/logs` | Fetch log entries |
+| GET | `/api/logs/stream` | SSE live logs |
+
+### Extension
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/extension/heartbeat` | Extension heartbeat |
+| POST | `/api/extension/register` | Register extension |
+| POST | `/api/extension/unregister` | Unregister extension |
+
+### Auth
+If `YTDL_API_KEY` is set, all POST/PUT/DELETE endpoints require:
+```
+Authorization: Bearer <your-api-key>
+```
 
 ---
 
@@ -101,24 +139,23 @@ Edit at `http://localhost:5000/settings` or directly in `~/.local/share/yt-dl/co
 
 ```
 ├── src/
-│   ├── app.py              # Flask server — routes, SSE, templates
-│   ├── worker.py           # Download queue — yt-dlp execution
-│   ├── notifications.py    # D-Bus notifications + extension heartbeat
-│   ├── models.py           # SQLite schema, config, helpers
-│   ├── templates/          # Jinja2 HTML templates
-│   └── static/             # CSS and JavaScript
+│   ├── app.py              # Flask server
+│   ├── worker.py           # yt-dlp download queue
+│   ├── notifications.py    # Extension + D-Bus notifications
+│   ├── models.py           # DB schema, config, helpers
+│   ├── updater.py          # Auto yt-dlp updater
+│   ├── templates/          # Jinja2 templates
+│   └── static/             # CSS + JS
 ├── extension/
-│   ├── manifest.json       # Extension manifest (MV3)
-│   ├── background.js       # Service worker — context menu, polling
-│   ├── popup.html/js       # Quality selector popup
-│   ├── notification.html/js # Custom toast popup window
-│   └── icons/
-├── config/
-│   ├── yt-dl.service       # systemd user service
-│   └── yt-dl.desktop       # Desktop entry
-├── yt-dl-handler.sh        # Right-click handler script
-├── install.sh               # Installer script
-└── install.fish             # Fish installer (optional)
+│   ├── manifest.json       # MV3 manifest
+│   ├── background.js       # Service worker
+│   ├── popup.html/js       # Quality selector
+│   ├── notification.html/js # Toast popup
+│   ├── icons/
+│   └── store/              # Web store assets
+├── Dockerfile              # Docker image
+├── docker-compose.yml      # Docker Compose
+└── install.sh              # Native installer
 ```
 
 ---
@@ -128,7 +165,7 @@ Edit at `http://localhost:5000/settings` or directly in `~/.local/share/yt-dl/co
 - [Flask](https://flask.palletsprojects.com/) — Python web framework
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) — Video download engine
 - [SQLite](https://sqlite.org/) — Database
-- [D-Bus](https://www.freedesktop.org/wiki/Software/dbus/) — Desktop notifications (Linux)
+- [D-Bus](https://www.freedesktop.org/wiki/Software/dbus/) — Linux desktop notifications
 
 ---
 

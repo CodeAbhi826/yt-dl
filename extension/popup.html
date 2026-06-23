@@ -14,38 +14,22 @@
   --divider: rgba(255,255,255,0.05);
 }
 
-/* Neutralize native browser canvas */
-html, body {
-  margin: 0;
-  padding: 0;
-  background: transparent !important;
-  box-shadow: none !important;
-}
-
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
+  width: 320px;
+  background: var(--bg);
+  color: var(--text);
   font-family: 'Inter', -apple-system, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
   font-smooth: antialiased;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-}
-
-/* Master card — forces rounding consistently across all Chromium browsers */
-.popup-card {
-  width: 320px;
-  background-color: var(--bg);
   border-radius: 22px;
   overflow: hidden;
-  backface-visibility: hidden;
-  transform: translate3d(0, 0, 0);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0px 12px 40px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.45);
 }
 
-.popup-content {
-  padding: 16px 18px;
-}
+.container { padding: 16px 18px; }
 
 /* Header */
 .header {
@@ -174,56 +158,51 @@ body {
 </style>
 </head>
 <body>
-
-<div class="popup-card">
-  <div class="popup-content">
-
-    <!-- Header -->
-    <div class="header">
-      <div class="icon-wrap">
-        <svg fill="none" viewBox="0 0 24 24" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 5v14M5 12l7 7 7-7"/>
-        </svg>
+<div class="container">
+  <!-- Header -->
+  <div class="header">
+    <div class="icon-wrap">
+      <svg fill="none" viewBox="0 0 24 24" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 5v14M5 12l7 7 7-7"/>
+      </svg>
+    </div>
+    <div class="title-area">
+      <div class="title">yt-dl</div>
+      <div class="status-row">
+        <span class="status-dot" id="statusDot"></span>
+        <span class="status-text" id="statusText">Checking...</span>
       </div>
-      <div class="title-area">
-        <div class="title">yt-dl</div>
-        <div class="status-row">
-          <span class="status-dot" id="statusDot"></span>
-          <span class="status-text" id="statusText">Checking...</span>
-        </div>
-      </div>
-      <button class="menu-btn" aria-label="Menu">
-        <svg fill="currentColor" viewBox="0 0 24 24">
-          <circle cx="12" cy="5" r="1.5"/>
-          <circle cx="12" cy="12" r="1.5"/>
-          <circle cx="12" cy="19" r="1.5"/>
-        </svg>
-      </button>
     </div>
+    <button class="menu-btn" aria-label="Menu">
+      <svg fill="currentColor" viewBox="0 0 24 24">
+        <circle cx="12" cy="5" r="1.5"/>
+        <circle cx="12" cy="12" r="1.5"/>
+        <circle cx="12" cy="19" r="1.5"/>
+      </svg>
+    </button>
+  </div>
 
-    <!-- Divider -->
-    <div class="divider"></div>
+  <!-- Divider -->
+  <div class="divider"></div>
 
-    <!-- Label -->
-    <div class="label">Default Quality</div>
+  <!-- Label -->
+  <div class="label">Default Quality</div>
 
-    <!-- Grid -->
-    <div class="quality-grid">
-      <button class="quality-btn" data-q="144p">144p</button>
-      <button class="quality-btn" data-q="240p">240p</button>
-      <button class="quality-btn" data-q="360p">360p</button>
-      <button class="quality-btn" data-q="480p">480p</button>
-      <button class="quality-btn" data-q="720p">720p</button>
-      <button class="quality-btn" data-q="1080p">1080p</button>
-      <button class="quality-btn" data-q="1440p">1440p</button>
-      <button class="quality-btn" data-q="2160p">2160p</button>
-    </div>
+  <!-- Grid -->
+  <div class="quality-grid">
+    <button class="quality-btn" data-q="144p">144p</button>
+    <button class="quality-btn" data-q="240p">240p</button>
+    <button class="quality-btn" data-q="360p">360p</button>
+    <button class="quality-btn" data-q="480p">480p</button>
+    <button class="quality-btn" data-q="720p">720p</button>
+    <button class="quality-btn" data-q="1080p">1080p</button>
+    <button class="quality-btn" data-q="1440p">1440p</button>
+    <button class="quality-btn" data-q="2160p">2160p</button>
+  </div>
 
-    <!-- Audio Button -->
-    <div class="audio-row">
-      <button class="quality-btn audio-btn" data-q="audio">Audio</button>
-    </div>
-
+  <!-- Audio Button -->
+  <div class="audio-row">
+    <button class="quality-btn audio-btn" data-q="audio">Audio</button>
   </div>
 </div>
 

@@ -24,7 +24,11 @@ from models import (
     init_db, get_db, load_config, save_config, job_to_dict,
     human_bytes, DEFAULT_CONFIG, QUALITY_MAP, DATA_DIR, DB_PATH, CONFIG_PATH
 )
-from notifications import NotificationManager, set_action_callbacks
+from notifications import (
+    NotificationManager, set_action_callbacks,
+    set_extension_heartbeat, clear_extension_heartbeat,
+    is_extension_alive, dbus_available
+)
 from worker import (
     process_queue, cancel_job, retry_job, active_jobs, pause_job, resume_job,
     queue_lock, set_notification_manager
@@ -132,6 +136,7 @@ set_action_callbacks(retry_fn=retry_job, cancel_fn=cancel_job)
 
 def shutdown_handler(signum, frame):
     logger.info(f"Signal {signum} received, shutting down...")
+    clear_extension_heartbeat()
     with queue_lock:
         for job in active_jobs.values():
             if job.proc and job.proc.poll() is None:
@@ -158,6 +163,28 @@ app = Flask(__name__,
 @app.route("/health")
 def health():
     return jsonify({"status": "ok", "time": datetime.now().isoformat()})
+
+@app.route("/api/info")
+def api_info():
+    return jsonify({
+        "dbus_available": dbus_available(),
+        "version": "1.0"
+    })
+
+@app.route("/api/extension/heartbeat", methods=["POST"])
+def api_extension_heartbeat():
+    set_extension_heartbeat()
+    return jsonify({"ok": True})
+
+@app.route("/api/extension/register", methods=["POST"])
+def api_extension_register():
+    set_extension_heartbeat()
+    return jsonify({"ok": True})
+
+@app.route("/api/extension/unregister", methods=["POST"])
+def api_extension_unregister():
+    clear_extension_heartbeat()
+    return jsonify({"ok": True})
 
 @app.route("/api/queue")
 def api_queue():

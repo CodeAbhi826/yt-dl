@@ -2,6 +2,7 @@
 """KDE Plasma 6.7 notification module for yt-dl."""
 
 import os
+import time
 import dbus
 import logging
 
@@ -20,12 +21,32 @@ STATE_ICONS = {
 
 _retry_callback = None
 _cancel_callback = None
+_extension_last_seen = 0.0
+_dbus_available = False
 
 
 def set_action_callbacks(retry_fn=None, cancel_fn=None):
     global _retry_callback, _cancel_callback
     _retry_callback = retry_fn
     _cancel_callback = cancel_fn
+
+
+def set_extension_heartbeat():
+    global _extension_last_seen
+    _extension_last_seen = time.time()
+
+
+def clear_extension_heartbeat():
+    global _extension_last_seen
+    _extension_last_seen = 0.0
+
+
+def is_extension_alive():
+    return time.time() - _extension_last_seen < 120
+
+
+def dbus_available():
+    return _dbus_available
 
 
 class NotificationManager:
@@ -37,6 +58,7 @@ class NotificationManager:
         self._init_dbus()
 
     def _init_dbus(self):
+        global _dbus_available
         try:
             self._bus = dbus.SessionBus()
             obj = self._bus.get_object(
@@ -49,6 +71,7 @@ class NotificationManager:
                 "ActionInvoked",
                 "org.freedesktop.Notifications"
             )
+            _dbus_available = True
             logger.info("D-Bus notifications initialized")
         except Exception as e:
             logger.warning(f"D-Bus init failed: {e}")
@@ -126,10 +149,14 @@ class NotificationManager:
                 pass
 
     def show_queued(self, job_id, title, quality):
+        if is_extension_alive():
+            return
         self._notify(job_id, "queued", title or "YouTube Video",
                      f"Quality: {quality}\nQueued for download", timeout=3000)
 
     def update_downloading(self, job_id, title, quality, progress, speed, eta):
+        if is_extension_alive():
+            return
         body = f"Quality: {quality}\n{speed or '0 KiB/s'} | ETA: {eta or 'Unknown'}"
         if progress is not None:
             body += f"\nProgress: {progress:.1f}%"
@@ -139,13 +166,19 @@ class NotificationManager:
                      progress=progress, timeout=timeout)
 
     def show_done(self, job_id, title, quality, file_path):
+        if is_extension_alive():
+            return
         self._notify(job_id, "done", title or "YouTube Video",
                      f"Quality: {quality}\nSaved to: {file_path or 'Unknown'}", timeout=5000)
 
     def show_failed(self, job_id, title, quality, error):
+        if is_extension_alive():
+            return
         self._notify(job_id, "failed", title or "YouTube Video",
                      f"Error: {error or 'Unknown error'}", timeout=0)
 
     def show_cancelled(self, job_id, title, quality):
+        if is_extension_alive():
+            return
         self._notify(job_id, "cancelled", title or "YouTube Video",
                      f"Quality: {quality}\nCancelled by user", timeout=3000)

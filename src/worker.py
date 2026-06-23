@@ -217,11 +217,6 @@ def run_download(job, download_dir):
                         save_job(job)
                         job.last_saved_progress = job.progress
                         job.last_update_time = now
-                        if notification_manager:
-                            notification_manager.update_downloading(
-                                job.job_id, job.title, job.quality,
-                                job.progress, job.speed, job.eta
-                            )
                 except Exception as e:
                     logger.debug(f"Progress parse error: {e}")
                 continue

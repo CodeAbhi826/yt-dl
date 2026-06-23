@@ -1,23 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Queue - yt-dl{% endblock %}
 {% block content %}
-<div class="filter-tabs" id="filter-tabs">
-  <button class="filter-tab active" data-filter="all">All</button>
-  <button class="filter-tab" data-filter="downloading">Downloading</button>
-  <button class="filter-tab" data-filter="queued">Queued</button>
-  <button class="filter-tab" data-filter="completed">Completed</button>
-  <button class="filter-tab" data-filter="failed">Failed</button>
-</div>
-
-<div id="bulk-bar" class="bulk-bar hidden">
-  <span id="bulk-count" style="font-size:13px; font-weight:600;">0 selected</span>
-  <div style="flex:1"></div>
-  <button class="btn btn-secondary btn-sm" onclick="bulkRetry()">Retry Selected</button>
-  <button class="btn btn-danger btn-sm" onclick="bulkDelete()">Delete Selected</button>
-  <button class="btn btn-secondary btn-sm" onclick="clearSelection()">Clear</button>
-</div>
-
-<div id="queue-grid" class="card-grid"></div>
+<div id="sections"></div>
+<footer class="page-footer" id="page-footer">
+  <span id="footer-left"></span>
+  <div class="footer-actions">
+    <span class="footer-action" id="clear-completed">Clear completed</span>
+    <span class="footer-action footer-action-danger" id="pause-all">Pause all</span>
+  </div>
+</footer>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='dashboard.js') }}"></script>

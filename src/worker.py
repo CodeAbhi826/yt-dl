@@ -173,7 +173,7 @@ def run_download(job, download_dir):
         "--newline", "--progress",
         "--progress-template", progress_template,
         "-P", str(download_dir),
-        "-o", "%(title)s [%(id)s].%(ext)s",
+        "-o", "%(title)s.%(ext)s",
         job.url,
     ])
 
@@ -234,12 +234,12 @@ def run_download(job, download_dir):
 
         if not job.file_path or not os.path.exists(job.file_path):
             video_files = []
+            safe_title = "".join(c for c in (job.title or "") if c.isalnum() or c in " _-")[:60]
             for ext in [".mp4", ".mkv", ".webm", ".mp3", ".m4a"]:
-                video_files.extend(download_dir.glob(f"*{job.video_id}*{ext}"))
+                video_files.extend(download_dir.glob(f"*{safe_title}*{ext}"))
             if not video_files:
-                safe_title = "".join(c for c in (job.title or "") if c.isalnum() or c in " _-")[:30]
                 for ext in [".mp4", ".mkv", ".webm", ".mp3", ".m4a"]:
-                    video_files.extend(download_dir.glob(f"*{safe_title}*{ext}"))
+                    video_files.extend(download_dir.glob(f"*{job.video_id}*{ext}"))
             if video_files:
                 job.file_path = str(video_files[0])
 

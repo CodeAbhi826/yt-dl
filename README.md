@@ -1,104 +1,65 @@
-# yt-dl — Zero-Friction YouTube Downloader
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg">
+  <img alt="yt-dl" src="https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg" width="80">
+</picture>
 
-A complete YouTube downloading system for Arch Linux + KDE Plasma 6.7, featuring a Flask daemon, Brave browser extension, KDE notifications, and a dark-themed web dashboard.
+# yt-dl
+
+[![GitHub release](https://img.shields.io/github/v/release/CodeAbhi826/yt-dl?color=ff4d36&labelColor=1a1a1a&logo=github)](https://github.com/CodeAbhi826/yt-dl/releases)
+[![GitHub stars](https://img.shields.io/github/stars/CodeAbhi826/yt-dl?color=ffcb47&labelColor=1a1a1a&logo=github)](https://github.com/CodeAbhi826/yt-dl/stargazers)
+[![GitHub downloads](https://img.shields.io/github/downloads/CodeAbhi826/yt-dl/total?color=3ea6ff&labelColor=1a1a1a&logo=github)](https://github.com/CodeAbhi826/yt-dl/releases)
+
+yt-dl is a self-hosted, zero-friction YouTube downloader for Linux desktop users. It pairs a lightweight Flask daemon with a Brave browser extension — right-click any YouTube link, select quality, and the video downloads automatically. A dark-themed web dashboard shows real-time progress, queue management, and download history.
+
+Built for **KDE Plasma 6** with native D-Bus notifications, custom toast popups via the browser extension, and a compact utility aesthetic throughout.
 
 ---
 
-## Table of Contents
+## Features
 
-- [Architecture](#architecture)
-- [Project Structure](#project-structure)
-- [File Locations](#file-locations)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Usage](#usage)
-- [API Reference](#api-reference)
-- [Troubleshooting](#troubleshooting)
+- **Right-click → Download** — Brave extension adds "Download with yt-dl" to YouTube link context menus
+- **Quality selector** — Extension popup lets you choose 144p to 2160p, plus audio-only MP3
+- **Real-time dashboard** — SSE-powered live queue with progress bars, speed, ETA per download
+- **Dark KDE-native UI** — Cards, progress bars, stats, and logs in a Plasma 6 Breeze Dark aesthetic
+- **Cross-platform notifications** — Custom KDE-style toast popups when Brave is open; D-Bus fallback when it's not
+- **Concurrent downloads** — Configurable parallel downloads (default 3)
+- **Download history & stats** — 7-day bar chart, success rate, total data downloaded, per-file metadata
+- **Embed options** — Thumbnail, metadata, chapters, and subtitles embedded automatically
+- **Live logs** — Real-time log stream via SSE for debugging
+- **systemd integration** — Runs as a `--user` service, starts on boot
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Brave Browser  │────▶│  Flask Daemon   │────▶│   yt-dlp +      │
-│  (Extension)    │     │  (localhost:5000)│     │   aria2c        │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-         │                       │
-         ▼                       ▼
-┌─────────────────┐     ┌─────────────────┐
-│  Context Menu   │     │  KDE Plasma     │
-│  "Download with  │     │  Notifications  │
-│   yt-dl"        │     │                 │
-└─────────────────┘     └─────────────────┘
-```
-
-**Components:**
-- **Flask Daemon** (`app.py`) — REST API + web dashboard
-- **Download Worker** (`worker.py`) — yt-dlp execution, queue management
-- **Notification Manager** (`notifications.py`) — KDE D-Bus notifications
-- **Models** (`models.py`) — SQLite DB + config helpers
-- **Brave Extension** — Context menu + popup quality selector
-- **Handler Script** — Right-click "Open With" integration
-
----
-
-## Project Structure
-
-```
-/mnt/storage/yt-dl/                    # Project root (development)
-├── README.md                          # This file
-├── install.fish                       # One-command installer
-├── yt-dl-handler.sh                   # Right-click handler
-├── src/                               # Python source
-│   ├── app.py                         # Flask routes + HTML templates
-│   ├── worker.py                      # yt-dlp download execution
-│   ├── notifications.py               # KDE Plasma 6.7 D-Bus notifications
-│   └── models.py                      # DB schema + config management
-├── extension/                         # Brave extension (unpacked)
-│   ├── manifest.json                  # Extension manifest v3
-│   ├── background.js                  # Service worker (context menu)
-│   ├── popup.html                     # Quality selector popup
-│   ├── popup.js                       # Popup logic
-│   └── icons/                         # Extension icons
-│       ├── icon16.png
-│       ├── icon48.png
-│       └── icon128.png
-└── config/                            # System config files
-    ├── yt-dl.service                  # systemd user service
-    └── yt-dl.desktop                  # Desktop entry
-
-~/.local/share/yt-dl/                # Runtime (after install)
-├── src/                             # Symlinked/copied from project
-├── data/                            # Runtime data
-│   ├── yt-dl.db                     # SQLite database
-│   ├── config.json                  # User settings
-│   └── daemon.log                   # Application logs
-└── yt-dl-handler.sh                 # Right-click script
-
-~/.config/systemd/user/yt-dl.service # systemd service
-~/.local/share/applications/yt-dl.desktop # Desktop entry
-~/.config/BraveSoftware/Brave-Browser/Default/Extensions/yt-dl/ # Extension
+┌──────────────────┐     ┌───────────────────────┐     ┌──────────────┐
+│  Brave Extension │────▶│  Flask Daemon          │────▶│   yt-dlp     │
+│  (context menu + │     │  (localhost:5000)      │     │              │
+│   quality popup) │     │  SSE + REST API        │     └──────────────┘
+└────────┬─────────┘     │  SQLite DB             │
+         │               │  D-Bus notifications   │
+         │               └───────────┬───────────┘
+         │                           │
+         ▼                           ▼
+┌──────────────────┐     ┌───────────────────────┐
+│ Custom toast     │     │ KDE Plasma 6          │
+│ notifications    │     │ D-Bus fallback        │
+│ (extension popup)│     │ notifications         │
+└──────────────────┘     └───────────────────────┘
 ```
 
 ---
 
-## File Locations
+## Screenshots
 
-| File | Source | Destination | Purpose |
-|------|--------|-------------|---------|
-| `app.py` | `/mnt/storage/yt-dl/src/` | `~/.local/share/yt-dl/src/` | Flask daemon routes |
-| `worker.py` | `/mnt/storage/yt-dl/src/` | `~/.local/share/yt-dl/src/` | Download execution |
-| `notifications.py` | `/mnt/storage/yt-dl/src/` | `~/.local/share/yt-dl/src/` | KDE notifications |
-| `models.py` | `/mnt/storage/yt-dl/src/` | `~/.local/share/yt-dl/src/` | DB + config |
-| `manifest.json` | `/mnt/storage/yt-dl/extension/` | `~/.config/BraveSoftware/.../yt-dl/` | Extension manifest |
-| `background.js` | `/mnt/storage/yt-dl/extension/` | `~/.config/BraveSoftware/.../yt-dl/` | Context menu |
-| `popup.html/js` | `/mnt/storage/yt-dl/extension/` | `~/.config/BraveSoftware/.../yt-dl/` | Quality popup |
-| `yt-dl.service` | `/mnt/storage/yt-dl/config/` | `~/.config/systemd/user/` | systemd service |
-| `yt-dl.desktop` | `/mnt/storage/yt-dl/config/` | `~/.local/share/applications/` | Desktop entry |
-| `yt-dl-handler.sh` | `/mnt/storage/yt-dl/` | `~/.local/share/yt-dl/` | Right-click handler |
-| `yt-dl.db` | Created at runtime | `~/.local/share/yt-dl/data/` | Download history |
-| `config.json` | Created at runtime | `~/.local/share/yt-dl/data/` | User settings |
+| Dashboard | Extension Popup |
+|:--:|:--:|
+| _Queue page — downloading, queued, recent, and failed cards_ | _Quality selector — 144p to 2160p + Audio_ |
+
+| Stats | Settings |
+|:--:|:--:|
+| _7-day bar chart, success rate, status breakdown_ | _Download directory, concurrent limit_ |
 
 ---
 
@@ -108,79 +69,71 @@ A complete YouTube downloading system for Arch Linux + KDE Plasma 6.7, featuring
 
 ```bash
 # Arch Linux
-sudo pacman -S python python-flask python-pillow yt-dlp aria2c brave-browser
+sudo pacman -S python python-flask yt-dlp brave-browser
 
-# KDE Plasma notifications (usually pre-installed)
+# KDE D-Bus (usually pre-installed)
 pip install --user dbus-python
 ```
 
-### One-Command Install
+### Quick Install
 
-```fish
-cd /mnt/storage/yt-dl
+```bash
+git clone https://github.com/CodeAbhi826/yt-dl.git
+cd yt-dl
 fish install.fish
 ```
 
 ### Manual Install
 
-```fish
-# 1. Copy source
+```bash
+# Copy source
 mkdir -p ~/.local/share/yt-dl/src
-cp /mnt/storage/yt-dl/src/*.py ~/.local/share/yt-dl/src/
+cp src/*.py ~/.local/share/yt-dl/src/
 
-# 2. Copy extension
-mkdir -p ~/.config/BraveSoftware/Brave-Browser/Default/Extensions/yt-dl
-cp /mnt/storage/yt-dl/extension/* ~/.config/BraveSoftware/Brave-Browser/Default/Extensions/yt-dl/
+# Copy extension
+mkdir -p ~/.config/BraveSoftware/Brave-Browser/Default/Extensions/yt-dl/
+cp extension/* ~/.config/BraveSoftware/Brave-Browser/Default/Extensions/yt-dl/
 
-# 3. Copy configs
+# Install systemd service
 mkdir -p ~/.config/systemd/user
-cp /mnt/storage/yt-dl/config/yt-dl.service ~/.config/systemd/user/
-cp /mnt/storage/yt-dl/config/yt-dl.desktop ~/.local/share/applications/
+cp config/yt-dl.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now yt-dl
 
-# 4. Copy handler
-cp /mnt/storage/yt-dl/yt-dl-handler.sh ~/.local/share/yt-dl/
+# Install desktop entry
+cp config/yt-dl.desktop ~/.local/share/applications/
+
+# Install handler script
+mkdir -p ~/.local/share/yt-dl
+cp yt-dl-handler.sh ~/.local/share/yt-dl/
 chmod +x ~/.local/share/yt-dl/yt-dl-handler.sh
 
-# 5. Enable service
-systemctl --user daemon-reload
-systemctl --user enable yt-dl
-systemctl --user start yt-dl
-
-# 6. Load extension in Brave
-# brave://extensions/ → Developer mode → Load unpacked → ~/.config/BraveSoftware/.../yt-dl/
+# Load extension in Brave
+# → brave://extensions/
+# → Developer mode
+# → Load unpacked
+# → ~/.config/BraveSoftware/Brave-Browser/Default/Extensions/yt-dl/
 ```
 
 ---
 
 ## Configuration
 
-Settings are stored in `~/.local/share/yt-dl/config.json`:
+Settings are stored in `~/.local/share/yt-dl/config.json` and editable via the web dashboard at `http://localhost:5000/settings`.
 
 ```json
 {
   "download_dir": "/mnt/storage/YouTube",
-  "default_quality": "720p",
   "concurrent_limit": 3,
-  "theme": "dark",
-  "embed_metadata": true,
-  "embed_thumbnail": true,
-  "embed_chapters": true,
-  "embed_subs": true
+  "theme": "dark"
 }
 ```
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `download_dir` | `/mnt/storage/YouTube` | Where videos are saved |
-| `default_quality` | `720p` | Default download quality |
-| `concurrent_limit` | `3` | Max simultaneous downloads |
-| `theme` | `dark` | Dashboard theme (dark/light) |
-| `embed_metadata` | `true` | Embed title/description |
-| `embed_thumbnail` | `true` | Embed thumbnail as cover art |
-| `embed_chapters` | `true` | Embed chapter markers |
-| `embed_subs` | `true` | Embed English subtitles |
-
-Change via dashboard (`http://localhost:5000/settings`) or API.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `download_dir` | `/mnt/storage/YouTube` | Where downloaded files are saved |
+| `concurrent_limit` | `3` | Max simultaneous downloads (1–10) |
+| `theme` | `dark` | Dashboard theme (`dark` / `light`) |
 
 ---
 
@@ -188,25 +141,27 @@ Change via dashboard (`http://localhost:5000/settings`) or API.
 
 ### Method 1: Brave Extension (Recommended)
 
-1. **Right-click** any YouTube link → **"Download with yt-dl"**
-2. **Click extension icon** on a YouTube video page
-3. **Select quality** in popup (144p to 2160p + Audio)
+1. **Right-click** any YouTube link → **Download with yt-dl**
+2. Or click the extension icon on a YouTube page → select quality → download starts automatically
+3. A KDE-style toast notification appears when the download completes or fails
 
-### Method 2: Dashboard
+### Method 2: Web Dashboard
 
-1. Open `http://localhost:5000`
-2. Use **Queue** page to monitor/cancel downloads
-3. Use **Stats** page to view history (with reset button)
-4. Use **Settings** page to change download location/quality
+Open `http://localhost:5000` to:
+- Monitor live progress of active downloads
+- View queued, completed, and failed jobs
+- Retry failed downloads, cancel active ones
+- Browse stats, history, and live logs
 
-### Method 3: Handler Script
+### Method 3: Right-click Handler
+
+Register `yt-dl-handler.sh` in KDE file associations to send YouTube links directly:
 
 ```bash
-# Right-click handler (configured in KDE file associations)
 ~/.local/share/yt-dl/yt-dl-handler.sh "https://www.youtube.com/watch?v=..."
 ```
 
-### Method 4: API (curl)
+### Method 4: API
 
 ```bash
 curl -X POST http://localhost:5000/api/add \
@@ -216,122 +171,128 @@ curl -X POST http://localhost:5000/api/add \
 
 ---
 
+## Project Structure
+
+```
+├── src/
+│   ├── app.py              # Flask daemon — routes, SSE, templates
+│   ├── worker.py            # Download worker — yt-dlp execution, queue
+│   ├── notifications.py     # D-Bus notifications + extension heartbeat
+│   ├── models.py            # SQLite schema, config, helpers
+│   ├── templates/           # Jinja2 templates (dashboard, stats, logs, settings)
+│   └── static/              # CSS, JS (dashboard, stats, logs, theme, toast)
+├── extension/
+│   ├── manifest.json        # Brave/Chrome extension manifest v3
+│   ├── background.js        # Service worker — context menu, polling, notifications
+│   ├── popup.html           # Quality selector popup
+│   ├── popup.js             # Popup logic
+│   ├── notification.html    # Custom toast popup window
+│   ├── notification.js      # Toast auto-dismiss, retry handler
+│   └── icons/               # Extension icons (16, 48, 128)
+├── config/
+│   ├── yt-dl.service        # systemd user service
+│   └── yt-dl.desktop        # Desktop entry
+├── yt-dl-handler.sh         # Headless right-click handler
+└── install.fish             # One-command installer
+```
+
+---
+
 ## API Reference
 
-### Queue Management
+### Queue
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `GET /api/queue` | GET | List all downloads |
-| `POST /api/add` | POST | Add new download |
-| `POST /api/jobs/<id>/retry` | POST | Retry failed job |
-| `POST /api/jobs/<id>/cancel` | POST | Cancel active job |
-| `DELETE /api/jobs/<id>` | DELETE | Delete job + file |
-| `POST /api/bulk/delete` | POST | Bulk delete (body: `{ids: [...]}`) |
-| `POST /api/bulk/retry` | POST | Bulk retry (body: `{ids: [...]}`) |
+| `GET /api/queue/stream` | GET | SSE stream for live queue updates |
+| `POST /api/add` | POST | Queue a new download `{url, quality}` |
+| `POST /api/jobs/<id>/retry` | POST | Retry a failed download |
+| `POST /api/jobs/<id>/cancel` | POST | Cancel an active download |
+| `DELETE /api/jobs/<id>` | DELETE | Delete job and file |
+| `POST /api/bulk/delete` | POST | Delete multiple jobs `{ids: [...]}` |
+| `POST /api/bulk/retry` | POST | Retry multiple jobs `{ids: [...]}` |
 
-### Settings
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `GET /api/settings` | GET | Get current config |
-| `PUT /api/settings` | PUT | Update config |
-| `POST /api/settings/reset` | POST | Reset to defaults |
-
-### Stats & Logs
+### Settings & Stats
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `GET /api/stats` | GET | Download statistics |
-| `POST /api/stats/reset` | POST | Clear all history |
-| `GET /api/logs` | GET | Recent log lines |
-| `GET /api/logs/stream` | GET | SSE live log stream |
-| `GET /api/search?q=...` | GET | Search downloads |
+| `GET /api/settings` | GET | Get current configuration |
+| `PUT /api/settings` | PUT | Update configuration |
+| `POST /api/settings/reset` | POST | Reset configuration to defaults |
+| `GET /api/stats` | GET | Download statistics and history |
+| `POST /api/stats/reset` | POST | Clear all download history |
+| `GET /api/logs` | GET | Recent log entries |
+| `GET /api/logs/stream` | GET | SSE stream for live logs |
 
-### Pages
+### System
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `GET /api/info` | GET | Server info — D-Bus status, version |
+| `POST /api/extension/heartbeat` | POST | Extension heartbeat (prevents D-Bus duplication) |
+| `POST /api/open` | POST | Open download directory via `xdg-open` |
+| `GET /health` | GET | Health check |
+
+### Web Pages
 
 | Route | Description |
 |-------|-------------|
 | `/` | Queue dashboard |
-| `/settings` | Settings page |
-| `/stats` | Statistics page |
-| `/logs` | Live logs page |
-| `/search` | Search page |
+| `/stats` | Statistics and history |
+| `/logs` | Live log stream |
+| `/settings` | Configuration page |
+
+---
+
+## Notifications
+
+yt-dl uses a two-tier notification system:
+
+| Scenario | Notification type | Look |
+|:--|:--|:--|
+| **Brave open** | Custom toast via `chrome.windows.create` | 400px dark card with accent bar, thumbnail, title, metadata, 3s auto-dismiss |
+| **Brave closed** | D-Bus fallback via server | Native KDE Plasma 6 popup with action buttons (Retry / Dismiss) |
+| **Download failed** | Persistent toast / D-Bus with Retry button | Stays until dismissed manually |
+
+The extension sends a heartbeat every 30 seconds. When the server detects a live heartbeat, it skips its own D-Bus notifications to prevent duplicates.
+
+---
+
+## Tech Stack
+
+- **[Flask](https://flask.palletsprojects.com/)** — Python web framework
+- **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** — Video download engine (1000+ supported sites)
+- **[SQLite](https://sqlite.org/)** — Download history and state
+- **[D-Bus](https://www.freedesktop.org/wiki/Software/dbus/)** — Linux desktop notifications
+- **[Brave/Chrome Extensions API](https://developer.chrome.com/docs/extensions/)** — Context menu, popup, custom windows
+- **[Server-Sent Events](https://html.spec.whatwg.org/multipage/server-sent-events.html)** — Live dashboard updates
 
 ---
 
 ## Troubleshooting
 
-### Daemon won't start
-
 ```bash
-# Check logs
+# Check daemon status
+systemctl --user status yt-dl
+
+# View logs
 journalctl --user -u yt-dl -f
 
-# Check syntax
-python3 -m py_compile ~/.local/share/yt-dl/src/app.py
+# Test D-Bus notifications
+notify-send --app-name=yt-dl "Test" "Hello from yt-dl"
 
-# Check port conflict
-lsof -i :5000
-```
-
-### Extension not loading
-
-```bash
-# Check extension files exist
-ls ~/.config/BraveSoftware/Brave-Browser/Default/Extensions/yt-dl/
-
-# Check icons exist
-ls ~/.config/BraveSoftware/Brave-Browser/Default/Extensions/yt-dl/icons/
-
-# Reload in brave://extensions/
-```
-
-### No notifications
-
-```bash
-# Check D-Bus
-qdbus org.freedesktop.Notifications /org/freedesktop/Notifications org.freedesktop.Notifications.GetCapabilities
-
-# Check KDE notification settings
-systemsettings5 kcm_notifications
-```
-
-### Downloads not starting
-
-```bash
-# Check yt-dlp installed
-which yt-dlp
-
-# Check aria2c installed
-which aria2c
-
-# Check download directory writable
-touch /mnt/storage/YouTube/test && rm /mnt/storage/YouTube/test
-```
-
-### Database errors
-
-```bash
-# Reset database (WARNING: loses history)
+# Reset database (clears history)
 rm ~/.local/share/yt-dl/data/yt-dl.db
 systemctl --user restart yt-dl
 ```
 
 ---
 
-## Design Spec
+## License
 
-- **Background**: `#0a0a0a` (dark), `#f5f5f5` (light)
-- **Cards**: `#141414` (dark), `#ffffff` (light)
-- **Accent**: `#ff2d20` (red)
-- **Success**: `#22c55e` (green)
-- **Font**: Inter, 11px uppercase labels (letter-spacing: 2px)
-- **Border radius**: 16px cards, 12px thumbnails
-- **Progress bars**: 6px height, `#ff2d20` fill
+Personal use. Built for Arch Linux + KDE Plasma 6 + Brave Browser.
 
 ---
 
-## License
-
-Personal use only. Built for Arch Linux + KDE Plasma 6.7 + Brave.
+*Inspired by [MeTube](https://github.com/alexta69/metube), [ytDownloader](https://github.com/aandrew-me/ytdownloader), and [VidBee](https://github.com/nexmoe/VidBee).*

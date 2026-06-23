@@ -360,3 +360,48 @@
 - Brave extension `"Download this page"` — requires `chrome.tabs.query` in extension context
 - `POST /api/open` — `xdg-open` was verified in code but not visually confirmed
 - File size display on `/api/stats` — returns 78.9MB but total includes 3 files (one can be visually verified on the dashboard)
+
+---
+
+## Phase 10 — Extension-based Toast Notifications + D-Bus Fallback
+
+**Goal:** Replace web-toast-only approach with extension-based custom toast popups that work on any OS, with D-Bus fallback on Linux when the extension isn't alive.
+
+**Files changed/created:** `extension/notification.html`, `extension/notification.js`, `extension/background.js`, `src/notifications.py`, `src/app.py`, `src/worker.py`
+
+### 10a — Custom Toast Popup (`notification.html` + `.js`)
+- **What:** A 400px-wide dark toast rendered via `chrome.windows.create` with full CSS control
+- **Layout:** 4px accent bar (colored per state) + 120×68 thumbnail + content area (app name, title, video title, metadata)
+- **States:** Download Started (blue accent, 3s), Download Complete (green accent + ✓ badge, 3s), Download Failed (orange accent + Retry button, 8s)
+- **Animation:** Slide in from right (200ms ease-out), fade out (300ms ease-out, scale .96 + opacity)
+- **Position:** Bottom-right of focused window, calculated via `chrome.windows.getLastFocused()`
+
+### 10b — Extension Background Polling (`background.js`)
+- **Heartbeat:** POST `/api/extension/heartbeat` every 30s → tells the server the extension is alive
+- **Queue polling:** GET `/api/queue` every 5s, diffs job statuses against previous snapshot
+- **Notification trigger:** When a job transitions `downloading→completed` or `downloading→failed`, fires `chrome.windows.create` with the notification popup
+- **D-Bus awareness:** Checks `/api/info` on startup — if `dbus_available` is true, skips all chrome.notifications and relies on server D-Bus only
+
+### 10c — D-Bus Fallback (`notifications.py`, `app.py`, `worker.py`)
+- **Extension heartbeat:** `set_extension_heartbeat()` / `clear_extension_heartbeat()` / `is_extension_alive()` — tracks time since last heartbeat (120s threshold)
+- **Notification suppression:** All `NotificationManager.show_*` methods now check `is_extension_alive()` first — if true, return early (no D-Bus popup)
+- **Endpoints:** `/api/extension/heartbeat` (POST), `/api/extension/register` (POST), `/api/extension/unregister` (POST), `/api/info` (GET — returns `dbus_available` + version)
+- **Shutdown:** `shutdown_handler` calls `clear_extension_heartbeat()` to prevent stale heartbeat detection
+
+### 10d — Removed Progress Notifications
+- Removed `notification_manager.update_downloading()` call from worker progress loop — only Dashboard UI shows real-time progress now
+
+### 10e — Cleaner Filenames
+- Changed yt-dlp output template from `"%(title)s [%(id)s].%(ext)s"` to `"%(title)s.%(ext)s"` — filenames no longer include the video ID
+- Updated fallback file search to prefer title-based glob over video_id glob
+
+---
+
+## Phase 11 — README Rewrite
+
+**Files changed:** `README.md`, `REFACTOR_LOG.md`
+
+- Rewrote README in the style of MeTube/ytDownloader/VidBee with badges, architecture diagram, feature list, installation instructions, API reference, and notification system documentation
+- Removed outdated references (aria2c, search page, embed settings from UI)
+- Updated REFACTOR_LOG.md with Phase 10 and Phase 11 changelogs
+

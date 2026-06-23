@@ -399,14 +399,9 @@ def dashboard():
 @app.route("/settings")
 def settings_page():
     cfg = load_config()
-    return render_template("settings.html", active="settings", qualities=list(QUALITY_MAP.keys()),
+    return render_template("settings.html", active="settings",
                            download_dir=cfg.get("download_dir", "/mnt/storage/YouTube"),
-                           default_quality=cfg.get("default_quality", "720p"),
                            concurrent_limit=cfg.get("concurrent_limit", 3),
-                           embed_metadata=cfg.get("embed_metadata", True),
-                           embed_thumbnail=cfg.get("embed_thumbnail", True),
-                           embed_chapters=cfg.get("embed_chapters", True),
-                           embed_subs=cfg.get("embed_subs", True),
                            theme=cfg.get("theme", "dark"))
 
 @app.route("/stats")

@@ -184,25 +184,6 @@ function connectSSE() {
   };
 }
 
-function addUrl() {
-  const input = document.getElementById("url-input");
-  const quality = document.getElementById("quality-select").value;
-  const url = input.value.trim();
-  const errorDiv = document.getElementById("add-error");
-  if (!url) { errorDiv.textContent = "Please enter a URL"; errorDiv.classList.remove("hidden"); return; }
-  errorDiv.classList.add("hidden");
-  const btn = document.querySelector(".add-url-card .btn-primary");
-  btn.textContent = "Adding..."; btn.disabled = true;
-  fetch("/api/add", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({url, quality})})
-    .then(r => r.json())
-    .then(d => {
-      input.value = '';
-      btn.textContent = "Download"; btn.disabled = false;
-      if (d.error) { errorDiv.textContent = d.error; errorDiv.classList.remove("hidden"); }
-    })
-    .catch(e => { btn.textContent = "Download"; btn.disabled = false; errorDiv.textContent = "Error: " + e; errorDiv.classList.remove("hidden"); });
-}
-
 function openFolder(jobId) {
   fetch("/api/jobs/" + jobId).then(r => r.json()).then(j => {
     if (j.file_path) {
@@ -218,18 +199,6 @@ function toggleRow(id) {
   if (card) {
     const cb = card.querySelector(".card-check");
     if (cb) cb.checked = selectedIds.has(id);
-  }
-  updateBulkBar();
-}
-
-function toggleSelectAll() {
-  const all = document.getElementById("select-all")?.checked;
-  for (const [id, card] of cards) {
-    if (card.style.display !== 'none') {
-      if (all) selectedIds.add(id); else selectedIds.delete(id);
-      const cb = card.querySelector(".card-check");
-      if (cb) cb.checked = all;
-    }
   }
   updateBulkBar();
 }

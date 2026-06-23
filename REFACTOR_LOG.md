@@ -405,3 +405,90 @@
 - Removed outdated references (aria2c, search page, embed settings from UI)
 - Updated REFACTOR_LOG.md with Phase 10 and Phase 11 changelogs
 
+---
+
+## Phase 12 — Extension Popup Premium Redesign + Live Status
+
+**Files changed:** `extension/popup.html`, `extension/popup.js`
+
+### 12a — Premium Desktop-Utility Popup UI
+- **Before:** Basic 320px dark popup with 3-column grid, borders on buttons, no header branding
+- **After:** 320px ultra-dark floating panel (`#111111` bg, 22px corner radius, 0 12px 40px shadow)
+- **Header:** 42px red circle icon with download arrow SVG + "yt-dl" title + green status dot + three-dot menu
+- **Divider:** 5% opacity white separator
+- **Grid:** 4-column layout (144p/240p/360p/480p top, 720p/1080p/1440p/2160p bottom)
+- **Buttons:** Capsule style (18px radius, 54px tall), `#1b1b1b` surface, `#242424` hover, `#ff2d20` active with red glow shadow
+- **Audio:** Centered 120px capsule below grid
+- **Typography:** Inter/SF Pro, 16px bold title, 11px uppercase label (2px letter-spacing), 14px button text
+- **Style influences:** Raycast, Arc Browser, Linear, Warp Terminal — no Material, no glassmorphism
+
+### 12b — Live Connection Status
+- **Before:** "Connected" was hardcoded text — no actual server check
+- **After:** Fetches `/api/info` on popup open (3s timeout), shows green dot + "Connected" on success, red dot + "Disconnected" on failure. Polls every 10s.
+- **Lines:** `popup.js` — `checkConnection()`
+
+### 12c — Popup Width Adjustments
+- Started at 280px (felt squashed), widened to 320px
+- Increased corner radius to 32px, then settled at 22px
+- Removed `.popup-card` wrapper, simplified to body-level styles for cross-browser consistency
+
+---
+
+## Phase 13 — Installer Rewrite + README Overhaul
+
+**Files changed:** `install.sh` (created), `install.fish` (kept as fallback), `README.md`, `LICENSE` (created)
+
+### 13a — `install.sh` (Bash Installer)
+- **Problem:** `install.fish` required the Fish shell — not everyone has it installed
+- **Solution:** Created `install.sh` with bash, works on any distro
+- **Features:**
+  - Auto-detects script directory (works from anywhere, not just git root)
+  - Checks dependencies (python3, yt-dlp, flask, dbus-python)
+  - Multi-distro package installation (pacman/apt/dnf detection)
+  - Prompts for download directory with sensible default (`~/Downloads/yt-dl`)
+  - Copies source files, templates, static assets, extension files
+  - Detects installed browser (chromium, chrome, brave, edge, vivaldi)
+  - Dynamically generates systemd service file with correct install path
+  - Creates desktop entry and handler script
+  - Generates default config.json with user's chosen download directory
+  - Clear summary with next steps
+
+### 13b — README Fixes
+- Removed KDE-specific wording → "Desktop notifications"
+- Removed pacman-specific prerequisites → `pip install --user flask dbus-python yt-dlp`
+- Removed Brave-only wording → "Chromium-based browsers (Chrome, Brave, Edge)"
+- Removed rickroll image
+- Removed "inspired by" line
+- Added MIT license badge + LICENSE file
+- Clean competitor-level format with badges, features, quick start, API table, project structure, dependencies
+
+---
+
+## Current Project Status (2026-06-23)
+
+### Complete
+- Backend pipeline — worker.py with yt-dlp, JSON progress, process group kill, persistent thread, throttled updates
+- Flask daemon — app.py with all routes, SSE streaming, graceful shutdown, migration
+- Notifications — Two-tier: extension custom toasts (browser open) + D-Bus fallback (browser closed)
+- Dashboard — Card-based reactive UI, filter tabs, bulk actions, progress bars, SSE-driven
+- Stats page — Client-rendered with daily bar chart, live polling
+- Logs page — Real-time SSE log streaming with level filters
+- Settings page — Download directory, concurrent limit, theme toggle
+- Extension — Context menu, quality popup, custom toast notifications, heartbeat polling
+- Installer — bash install.sh with dependency checking and multi-distro support
+- systemd integration — User service, auto-restart on failure
+- Security — Shell injection fixed, log rotation, DB indexes
+- README — Professional documentation with MIT license
+
+### What's Left (Minor Improvements)
+- **Notification popup redesign** — `notification.html` could match the new premium popup style (currently still the old basic dark card)
+- **No daemon status badge in nav** — Dashboard/Stats/Logs pages don't show server connection status like the popup does
+- **Desktop notifications page** — Could add a `/notifications` settings panel to configure notification preferences
+- **Pause/Resume** — Currently only cancel, no pause/resume (yt-dlp limitation)
+- **Playlist support** — Currently single-video only, no playlist/ channel download
+- **Dark/light mode toggle in extension** — Popup doesn't respect theme setting
+- **Extension settings sync** — Default quality is stored per-browser, not synced to server config
+
+### Verdict
+Project is **feature-complete for a v1.0**. What's listed above is polish/niche features, not blockers. The core loop (right-click → download → dashboard → notification) works end-to-end.
+

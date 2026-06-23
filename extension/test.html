@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>yt-dl Notification Test</title>
+<style>
+body { background:#0a0a0a; color:#fff; font-family:Inter,system-ui,sans-serif; padding:40px; }
+h1 { font-size:18px; margin-bottom:20px; color:#aaa; }
+.links { display:flex; flex-direction:column; gap:12px; margin-bottom:40px; }
+.links a {
+  display:inline-block;
+  padding:10px 20px;
+  background:#1b1b1b;
+  color:#d4d4d4;
+  border-radius:10px;
+  text-decoration:none;
+  font-size:14px;
+  width:fit-content;
+  border:1px solid rgba(255,255,255,0.06);
+}
+.links a:hover { background:#242424; color:white; }
+.frame-wrap { display:flex; gap:30px; flex-wrap:wrap; }
+.frame-wrap iframe {
+  width:322px; height:200px; border:none; border-radius:22px;
+  box-shadow:0 12px 40px rgba(0,0,0,0.45);
+}
+</style>
+</head>
+<body>
+<h1>yt-dl Notification Test</h1>
+<div class="links">
+  <a href="notification.html?type=started&title=Download%20Started&video=PSY%20-%20GANGNAM%20STYLE&meta=720p%20%C2%B7%203%3A32&thumb=https://i.ytimg.com/vi/9bZkp7q19f0/mqdefault.jpg&jobId=test_123" target="_blank">Open Started Toast</a>
+  <a href="notification.html?type=completed&title=Download%20Complete&video=PSY%20-%20GANGNAM%20STYLE&meta=16.3%20MB%20%C2%B7%20720p%20%C2%B7%20MP4&thumb=https://i.ytimg.com/vi/9bZkp7q19f0/mqdefault.jpg&jobId=test_123" target="_blank">Open Completed Toast</a>
+  <a href="notification.html?type=failed&title=Download%20Failed&video=PSY%20-%20GANGNAM%20STYLE&meta=HTTP%20Error%20403%3A%20Forbidden&thumb=https://i.ytimg.com/vi/9bZkp7q19f0/mqdefault.jpg&jobId=test_123" target="_blank">Open Failed Toast (with Retry)</a>
+</div>
+<h2 style="color:#aaa;margin-bottom:16px;">Preview (all states)</h2>
+<div class="frame-wrap">
+  <iframe src="notification.html?type=started&title=Download%20Started&video=PSY%20-%20GANGNAM%20STYLE&meta=720p%20%C2%B7%203%3A32&thumb=https://i.ytimg.com/vi/9bZkp7q19f0/mqdefault.jpg&jobId=test_123"></iframe>
+  <iframe src="notification.html?type=completed&title=Download%20Complete&video=PSY%20-%20GANGNAM%20STYLE&meta=16.3%20MB%20%C2%B7%20720p%20%C2%B7%20MP4&thumb=https://i.ytimg.com/vi/9bZkp7q19f0/mqdefault.jpg&jobId=test_123"></iframe>
+  <iframe src="notification.html?type=failed&title=Download%20Failed&video=PSY%20-%20GANGNAM%20STYLE&meta=HTTP%20Error%20403%3A%20Forbidden&thumb=https://i.ytimg.com/vi/9bZkp7q19f0/mqdefault.jpg&jobId=test_123"></iframe>
+</div>
+</body>
+</html>

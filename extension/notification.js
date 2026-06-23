@@ -34,7 +34,7 @@ function doRetry() {
 }
 
 // Auto dismiss (failed persists longer)
-const timeout = type === 'failed' ? 8000 : 3000;
+const timeout = type === 'failed' ? 5000 : 3000;
 setTimeout(() => {
   document.getElementById('toast').style.transition = 'opacity 300ms ease-out, transform 300ms ease-out';
   document.getElementById('toast').style.opacity = '0';

@@ -49,36 +49,24 @@ logger = logging.getLogger("yt-dl")
 # Ring buffer log handler for SSE
 from collections import deque
 
-class RingBufferLogHandler:
+class RingBufferLogHandler(logging.Handler):
     def __init__(self, max_lines=500):
+        super().__init__()
         self.max_lines = max_lines
         self.buffer = deque(maxlen=max_lines)
-        self.lock = threading.Lock()
+        self.buf_lock = threading.Lock()
         self.subscribers = []
         self.sub_lock = threading.Lock()
 
-    def write(self, line):
-        if not line.strip():
-            return
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        entry = {"time": ts, "message": line.rstrip(), "level": self._detect_level(line)}
-        with self.lock:
+    def emit(self, record):
+        entry = {
+            "time": datetime.fromtimestamp(record.created).strftime("%Y-%m-%d %H:%M:%S"),
+            "message": record.getMessage(),
+            "level": record.levelname,
+        }
+        with self.buf_lock:
             self.buffer.append(entry)
         self._notify(entry)
-
-    def _detect_level(self, line):
-        ll = line.lower()
-        if "error" in ll or "exception" in ll or "traceback" in ll:
-            return "ERROR"
-        elif "warn" in ll:
-            return "WARN"
-        elif "debug" in ll:
-            return "DEBUG"
-        elif "success" in ll or "completed" in ll:
-            return "SUCCESS"
-        elif "download" in ll and "%" in ll:
-            return "PROGRESS"
-        return "INFO"
 
     def _notify(self, entry):
         with self.sub_lock:
@@ -93,7 +81,7 @@ class RingBufferLogHandler:
                     self.subscribers.remove(q)
 
     def get_lines(self, count=None, level_filter=None):
-        with self.lock:
+        with self.buf_lock:
             lines = list(self.buffer)
         if level_filter and level_filter != "ALL":
             lines = [l for l in lines if l["level"] == level_filter]
@@ -113,20 +101,12 @@ class RingBufferLogHandler:
                 self.subscribers.remove(q)
 
 ring_log = RingBufferLogHandler()
+ring_log.setLevel(logging.INFO)
+logger.addHandler(ring_log)
 
-class LogRedirector:
-    def __init__(self, handler, original):
-        self.handler = handler
-        self.original = original
-    def write(self, s):
-        if s.strip():
-            self.handler.write(s)
-        self.original.write(s)
-    def flush(self):
-        self.original.flush()
-
-sys.stdout = LogRedirector(ring_log, sys.stdout)
-sys.stderr = LogRedirector(ring_log, sys.stderr)
+# Suppress Werkzeug access logs
+werkzeug_log = logging.getLogger("werkzeug")
+werkzeug_log.setLevel(logging.WARNING)
 
 # Initialize notification manager
 nm = NotificationManager()
@@ -179,11 +159,13 @@ def api_extension_heartbeat():
 @app.route("/api/extension/register", methods=["POST"])
 def api_extension_register():
     set_extension_heartbeat()
+    logger.info("Extension connected")
     return jsonify({"ok": True})
 
 @app.route("/api/extension/unregister", methods=["POST"])
 def api_extension_unregister():
     clear_extension_heartbeat()
+    logger.info("Extension disconnected")
     return jsonify({"ok": True})
 
 @app.route("/api/queue")
@@ -196,12 +178,14 @@ def api_queue():
 @app.route("/api/jobs/<job_id>/retry", methods=["POST"])
 def api_retry_job(job_id):
     if retry_job(job_id):
+        logger.info(f"Job retried: {job_id}")
         return jsonify({"ok": True})
     return jsonify({"ok": False, "error": "Job not found"}), 404
 
 @app.route("/api/jobs/<job_id>/cancel", methods=["POST"])
 def api_cancel_job(job_id):
     if cancel_job(job_id):
+        logger.info(f"Job cancelled: {job_id}")
         return jsonify({"ok": True})
     return jsonify({"ok": False, "error": "Job not found"}), 404
 
@@ -405,11 +389,14 @@ def api_add_job():
         video_id = m.group(1)
 
     job_id = f"job_{int(time.time() * 1000)}_{video_id or 'unknown'}"
+    title = data.get("title", "")
     db = get_db()
     db.execute("INSERT INTO downloads (job_id, video_id, url, quality, status, title) VALUES (?, ?, ?, ?, 'queued', ?)",
-               (job_id, video_id, url, quality, data.get("title", "")))
+               (job_id, video_id, url, quality, title))
     db.commit()
     db.close()
+
+    logger.info(f"Download added [{quality}] {title or video_id or url}")
 
     # Start worker
     threading.Thread(target=process_queue, daemon=True).start()
@@ -492,7 +479,13 @@ if __name__ == "__main__":
     cfg = load_config()
     ring_log.max_lines = cfg.get("max_log_lines", 500)
     port = 5000
-    logger.info(f"yt-dl daemon starting on http://127.0.0.1:{port}")
+    logger.info(f"yt-dl v1.0 started — http://127.0.0.1:{port}")
+    logger.info(f"Downloads directory: {cfg.get('download_dir', '/mnt/storage/YouTube')}")
+    logger.info(f"Concurrent downloads: {cfg.get('concurrent_limit', 3)}")
+    if not dbus_available():
+        logger.info("D-Bus not available — desktop notifications via extension only")
+    else:
+        logger.info("D-Bus available — desktop notifications enabled")
     try:
         app.run(host="127.0.0.1", port=port, threaded=True, debug=False)
     except OSError as e:

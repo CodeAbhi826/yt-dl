@@ -206,8 +206,12 @@ def run_download(job, download_dir):
                     job.eta = data.get("eta", "")
 
                     filename = data.get("filename", "")
-                    if filename and not job.file_path:
-                        job.file_path = filename
+                    if filename:
+                        ext = os.path.splitext(filename)[1].lower()
+                        if ext in (".mp4", ".mkv", ".mp3", ".m4a"):
+                            job.file_path = filename
+                        elif not job.file_path and ext in (".webm", ".vtt"):
+                            job.file_path = filename
 
                     now = time.time()
                     progress_changed = abs(job.progress - job.last_saved_progress) >= 1.0
@@ -232,7 +236,7 @@ def run_download(job, download_dir):
 
         proc.wait()
 
-        if not job.file_path or not os.path.exists(job.file_path):
+        if not job.file_path or not os.path.exists(job.file_path) or os.path.getsize(job.file_path) == 0:
             video_files = []
             safe_title = "".join(c for c in (job.title or "") if c.isalnum() or c in " _-")[:60]
             for ext in [".mp4", ".mkv", ".webm", ".mp3", ".m4a"]:

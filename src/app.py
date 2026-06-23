@@ -419,11 +419,6 @@ def logs_page():
     cfg = load_config()
     return render_template("logs.html", active="logs", theme=cfg.get("theme", "dark"))
 
-@app.route("/search")
-def search_page():
-    cfg = load_config()
-    return render_template("search.html", active="search", qualities=list(QUALITY_MAP.keys()), theme=cfg.get("theme", "dark"))
-
 # ── SSE: Queue Stream ─────────────────────────────────────────────
 
 @app.route("/api/queue/stream")

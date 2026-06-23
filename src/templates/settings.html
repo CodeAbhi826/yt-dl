@@ -2,6 +2,11 @@
 {% block title %}Settings - yt-dl{% endblock %}
 {% block content %}
 <h1 style="font-size:24px; font-weight:700; margin-bottom:24px;">Settings</h1>
+
+<div id="auth-warning" style="display:none;padding:12px 16px;background:rgba(243,156,18,0.15);border:1px solid rgba(243,156,18,0.3);border-radius:12px;margin-bottom:20px;">
+  <strong style="color:#f59e0b;font-size:13px;">&#9888; No API key set.</strong>
+  <span style="color:#bbb;font-size:12px;"> Set <code style="background:#222;padding:2px 6px;border-radius:4px;">YTDL_API_KEY</code> environment variable to secure the server.</span>
+</div>
 <div class="grid grid-2">
 <div class="card">
 <div class="card-title">Download</div>
@@ -13,6 +18,21 @@
 <label class="form-label">Concurrent Downloads</label>
 <input type="number" class="form-input" id="concurrent_limit" value="{{ concurrent_limit }}" min="1" max="10">
 </div>
+<div class="form-group">
+<label class="form-label">Filename Pattern</label>
+<input type="text" class="form-input" id="output_pattern" value="%(title)s.%(ext)s" placeholder="%(title)s.%(ext)s">
+<p style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+Uses yt-dlp output template. Example: <code>%(channel)s/%(title)s.%(ext)s</code> for channel subdirectories.
+</p>
+</div>
+</div>
+<div class="card">
+<div class="card-title">YouTube Cookies</div>
+<p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Upload cookies.txt from your browser to download age-restricted or private videos.</p>
+<div id="cookies-status" style="font-size:13px;margin-bottom:12px;"></div>
+<input type="file" id="cookies-file" accept=".txt,.json" style="display:none;" onchange="uploadCookies(this)">
+<button class="btn btn-secondary" onclick="document.getElementById('cookies-file').click()">Upload cookies.txt</button>
+<button class="btn btn-secondary" id="delete-cookies-btn" style="display:none;margin-left:8px;color:#dc2626;" onclick="deleteCookies()">Remove</button>
 </div>
 </div>
 <div style="margin-top:24px; display:flex; gap:12px;">
@@ -25,5 +45,54 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script src="{{ url_for('static', filename='settings.js') }}"></script>
+<script>
+function uploadCookies(input) {
+  const f = input.files[0];
+  if (!f) return;
+  const fd = new FormData();
+  fd.append("file", f);
+  fetch("/api/settings/cookies", {method:"POST", body:fd})
+    .then(r=>r.json()).then(d => { showToast("Cookies uploaded"); checkCookies(); });
+}
+
+function deleteCookies() {
+  fetch("/api/settings/cookies", {method:"DELETE"})
+    .then(r=>r.json()).then(d => { showToast("Cookies removed"); checkCookies(); });
+}
+
+function checkCookies() {
+  fetch("/api/settings/cookies").then(r=>r.json()).then(d => {
+    const el = document.getElementById("cookies-status");
+    const del = document.getElementById("delete-cookies-btn");
+    if (d.exists) {
+      el.innerHTML = '<span style="color:#22c55e;">&#10003; Cookies file present</span>';
+      del.style.display = '';
+    } else {
+      el.innerHTML = '<span style="color:#888;">No cookies file uploaded</span>';
+      del.style.display = 'none';
+    }
+  });
+}
+
+function saveSettings() {
+  const cfg = {
+    download_dir: document.getElementById("download_dir").value,
+    concurrent_limit: parseInt(document.getElementById("concurrent_limit").value),
+    output_pattern: document.getElementById("output_pattern").value,
+  };
+  fetch("/api/settings", {method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(cfg)})
+    .then(r=>r.json()).then(d=> showToast("Settings saved"));
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+  checkCookies();
+  fetch("/api/info").then(r=>r.json()).then(d => {
+    if (d.auth_required) {
+      document.getElementById("auth-warning").style.display = "none";
+    } else {
+      document.getElementById("auth-warning").style.display = "";
+    }
+  });
+});
+</script>
 {% endblock %}

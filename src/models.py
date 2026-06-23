@@ -23,6 +23,7 @@ DEFAULT_CONFIG = {
     "default_quality": "720p",
     "concurrent_limit": 3,
     "theme": "dark",
+    "output_pattern": "%(title)s.%(ext)s",
     "embed_metadata": True,
     "embed_thumbnail": True,
     "embed_chapters": True,

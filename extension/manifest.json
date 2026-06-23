@@ -2,7 +2,8 @@
   "manifest_version": 3,
   "name": "yt-dl",
   "version": "1.0.0",
-  "description": "Zero-friction YouTube downloader",
+  "description": "One-click YouTube downloader. Right-click any link, select quality, and download automatically.",
+  "homepage_url": "https://github.com/CodeAbhi826/yt-dl",
   "permissions": [
     "storage",
     "contextMenus",
@@ -19,6 +20,7 @@
   },
   "action": {
     "default_popup": "popup.html",
+    "default_title": "yt-dl — Download with yt-dl",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",

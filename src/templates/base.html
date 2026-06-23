@@ -18,10 +18,24 @@
 <a href="/settings" class="nav-link {{ 'active' if active == 'settings' else '' }}">Settings</a>
 </div>
 <div class="nav-actions">
+<span id="conn-status" style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text-muted);margin-right:12px;">
+<span id="conn-dot" style="width:6px;height:6px;border-radius:50%;background:#555;display:inline-block;"></span>
+<span id="conn-text">checking</span>
+</span>
 <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
 </button>
 </div>
+<script>
+function checkConn() {
+  fetch('/api/info', {signal: AbortSignal.timeout(3000)})
+    .then(r => r.ok ? Promise.resolve() : Promise.reject())
+    .then(() => { document.getElementById('conn-dot').style.background = '#22c55e'; document.getElementById('conn-text').textContent = 'connected'; })
+    .catch(() => { document.getElementById('conn-dot').style.background = '#ef4444'; document.getElementById('conn-text').textContent = 'disconnected'; });
+}
+checkConn();
+setInterval(checkConn, 15000);
+</script>
 </nav>
 <main class="container">
 {% block content %}{% endblock %}

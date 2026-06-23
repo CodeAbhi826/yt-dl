@@ -14,6 +14,8 @@ from pathlib import Path
 from datetime import datetime
 
 from models import get_db, job_to_dict, load_config, QUALITY_MAP
+
+COOKIES_PATH = Path.home() / ".local/share/yt-dl/cookies.txt"
 from notifications import NotificationManager
 
 logger = logging.getLogger("yt-dl")
@@ -173,9 +175,12 @@ def run_download(job, download_dir):
         "--newline", "--progress",
         "--progress-template", progress_template,
         "-P", str(download_dir),
-        "-o", "%(title)s.%(ext)s",
+        "-o", cfg.get("output_pattern", "%(title)s.%(ext)s"),
         job.url,
     ])
+
+    if COOKIES_PATH.exists():
+        download_cmd.extend(["--cookies", str(COOKIES_PATH)])
 
     download_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Starting download: {job.job_id} -> {job.title}")

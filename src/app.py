@@ -24,6 +24,7 @@ from models import (
     init_db, get_db, load_config, save_config, job_to_dict,
     human_bytes, DEFAULT_CONFIG, QUALITY_MAP, DATA_DIR, DB_PATH, CONFIG_PATH
 )
+COOKIES_PATH = DATA_DIR / "cookies.txt"
 from notifications import (
     NotificationManager, set_action_callbacks,
     set_extension_heartbeat, clear_extension_heartbeat,
@@ -33,6 +34,7 @@ from worker import (
     process_queue, cancel_job, retry_job, active_jobs, pause_job, resume_job,
     queue_lock, set_notification_manager
 )
+from updater import start_auto_updater
 
 # Logging setup
 LOG_PATH = DATA_DIR / "daemon.log"
@@ -133,6 +135,20 @@ def shutdown_handler(signum, frame):
 signal.signal(signal.SIGTERM, shutdown_handler)
 signal.signal(signal.SIGINT, shutdown_handler)
 
+# Auth
+API_KEY = os.environ.get("YTDL_API_KEY", "")
+
+def require_auth(f):
+    if not API_KEY:
+        return f
+    def wrapper(*args, **kwargs):
+        auth = request.headers.get("Authorization", "")
+        if auth != f"Bearer {API_KEY}":
+            return jsonify({"error": "Unauthorized"}), 401
+        return f(*args, **kwargs)
+    wrapper.__name__ = f.__name__
+    return wrapper
+
 # ── Flask App ─────────────────────────────────────────────────────
 
 app = Flask(__name__,
@@ -148,21 +164,25 @@ def health():
 def api_info():
     return jsonify({
         "dbus_available": dbus_available(),
-        "version": "1.0"
+        "version": "1.0",
+        "auth_required": bool(API_KEY),
     })
 
 @app.route("/api/extension/heartbeat", methods=["POST"])
+@require_auth
 def api_extension_heartbeat():
     set_extension_heartbeat()
     return jsonify({"ok": True})
 
 @app.route("/api/extension/register", methods=["POST"])
+@require_auth
 def api_extension_register():
     set_extension_heartbeat()
     logger.info("Extension connected")
     return jsonify({"ok": True})
 
 @app.route("/api/extension/unregister", methods=["POST"])
+@require_auth
 def api_extension_unregister():
     clear_extension_heartbeat()
     logger.info("Extension disconnected")
@@ -176,6 +196,7 @@ def api_queue():
     return jsonify([job_to_dict(r) for r in rows])
 
 @app.route("/api/jobs/<job_id>/retry", methods=["POST"])
+@require_auth
 def api_retry_job(job_id):
     if retry_job(job_id):
         logger.info(f"Job retried: {job_id}")
@@ -183,6 +204,7 @@ def api_retry_job(job_id):
     return jsonify({"ok": False, "error": "Job not found"}), 404
 
 @app.route("/api/jobs/<job_id>/cancel", methods=["POST"])
+@require_auth
 def api_cancel_job(job_id):
     if cancel_job(job_id):
         logger.info(f"Job cancelled: {job_id}")
@@ -190,6 +212,7 @@ def api_cancel_job(job_id):
     return jsonify({"ok": False, "error": "Job not found"}), 404
 
 @app.route("/api/jobs/<job_id>", methods=["DELETE"])
+@require_auth
 def api_delete_job(job_id):
     db = get_db()
     row = db.execute("SELECT file_path FROM downloads WHERE job_id=?", (job_id,)).fetchone()
@@ -204,6 +227,7 @@ def api_delete_job(job_id):
     return jsonify({"ok": True})
 
 @app.route("/api/bulk/delete", methods=["POST"])
+@require_auth
 def api_bulk_delete():
     data = request.get_json() or {}
     ids = data.get("ids", [])
@@ -234,6 +258,7 @@ def api_get_job(job_id):
     return jsonify(job_to_dict(row))
 
 @app.route("/api/open", methods=["POST"])
+@require_auth
 def api_open_path():
     data = request.get_json() or {}
     path = data.get("path", "")
@@ -246,6 +271,7 @@ def api_open_path():
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/bulk/retry", methods=["POST"])
+@require_auth
 def api_bulk_retry():
     data = request.get_json() or {}
     ids = data.get("ids", [])
@@ -264,6 +290,7 @@ def api_get_settings():
     return jsonify(load_config())
 
 @app.route("/api/settings", methods=["PUT"])
+@require_auth
 def api_update_settings():
     cfg = load_config()
     updates = request.get_json() or {}
@@ -274,9 +301,35 @@ def api_update_settings():
     return jsonify(cfg)
 
 @app.route("/api/settings/reset", methods=["POST"])
+@require_auth
 def api_reset_settings():
     save_config(DEFAULT_CONFIG.copy())
     return jsonify(DEFAULT_CONFIG.copy())
+
+@app.route("/api/settings/cookies", methods=["GET"])
+def api_cookies_status():
+    return jsonify({"exists": COOKIES_PATH.exists(), "size": COOKIES_PATH.stat().st_size if COOKIES_PATH.exists() else 0})
+
+@app.route("/api/settings/cookies", methods=["POST"])
+@require_auth
+def api_upload_cookies():
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    f = request.files["file"]
+    if not f.filename:
+        return jsonify({"error": "Empty filename"}), 400
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    f.save(str(COOKIES_PATH))
+    logger.info("Cookies file uploaded")
+    return jsonify({"ok": True, "path": str(COOKIES_PATH)})
+
+@app.route("/api/settings/cookies", methods=["DELETE"])
+@require_auth
+def api_delete_cookies():
+    if COOKIES_PATH.exists():
+        COOKIES_PATH.unlink()
+        logger.info("Cookies file deleted")
+    return jsonify({"ok": True})
 
 @app.route("/api/stats")
 def api_stats():
@@ -314,6 +367,7 @@ def api_stats():
     })
 
 @app.route("/api/stats/reset", methods=["POST"])
+@require_auth
 def api_reset_stats():
     conn = sqlite3.connect(str(DB_PATH))
     c = conn.cursor()
@@ -376,6 +430,7 @@ def api_search():
     return jsonify([job_to_dict(r) for r in rows])
 
 @app.route("/api/add", methods=["POST"])
+@require_auth
 def api_add_job():
     data = request.get_json() or {}
     url = data.get("url", "").strip()
@@ -388,6 +443,59 @@ def api_add_job():
     if m:
         video_id = m.group(1)
 
+    # Check if this is a playlist
+    is_playlist = "list=" in url or "/playlist/" in url
+    if is_playlist:
+        try:
+            result = subprocess.run(
+                ["yt-dlp", "--flat-playlist", "--dump-json", "--no-download", url],
+                capture_output=True, text=True, timeout=30
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                entries = [json.loads(line) for line in result.stdout.strip().split("\n") if line.strip()]
+                playlist_title = entries[0].get("playlist_title", "Playlist") if entries else "Playlist"
+                logger.info(f"Playlist detected: \"{playlist_title}\" ({len(entries)} videos)")
+
+                db = get_db()
+                # Get already-downloaded video IDs to skip
+                downloaded = set()
+                if entries:
+                    eids = [e.get("id") for e in entries if e.get("id")]
+                    if eids:
+                        placeholders = ",".join("?" * len(eids))
+                        rows = db.execute(
+                            f"SELECT DISTINCT video_id FROM downloads WHERE video_id IN ({placeholders}) AND status='completed'",
+                            tuple(eids)
+                        ).fetchall()
+                        downloaded = {r["video_id"] for r in rows}
+
+                count = 0
+                for entry in entries[:50]:
+                    eid = entry.get("id")
+                    if not eid:
+                        continue
+                    if eid in downloaded:
+                        continue
+                    etitle = (entry.get("title") or "Unknown")[:80]
+                    eurl = f"https://www.youtube.com/watch?v={eid}"
+                    ejob_id = f"job_{int(time.time() * 1000)}_{eid}"
+                    db.execute(
+                        "INSERT INTO downloads (job_id, video_id, url, quality, status, title) VALUES (?, ?, ?, ?, 'queued', ?)",
+                        (ejob_id, eid, eurl, quality, etitle)
+                    )
+                    count += 1
+
+                db.commit()
+                db.close()
+                logger.info(f"Playlist queued: {count} new videos (skipped {len(entries) - count} existing)")
+                threading.Thread(target=process_queue, daemon=True).start()
+                return jsonify({"status": "playlist", "title": playlist_title, "total": len(entries), "added": count, "skipped": len(entries) - count})
+
+        except subprocess.TimeoutExpired:
+            logger.warning("Playlist detection timed out, treating as single video")
+        except Exception as e:
+            logger.warning(f"Playlist detection failed: {e}")
+
     job_id = f"job_{int(time.time() * 1000)}_{video_id or 'unknown'}"
     title = data.get("title", "")
     db = get_db()
@@ -398,7 +506,6 @@ def api_add_job():
 
     logger.info(f"Download added [{quality}] {title or video_id or url}")
 
-    # Start worker
     threading.Thread(target=process_queue, daemon=True).start()
 
     return jsonify({"job_id": job_id, "status": "queued"})
@@ -478,6 +585,7 @@ if __name__ == "__main__":
     conn.close()
     cfg = load_config()
     ring_log.max_lines = cfg.get("max_log_lines", 500)
+    start_auto_updater()
     port = 5000
     logger.info(f"yt-dl v1.0 started — http://127.0.0.1:{port}")
     logger.info(f"Downloads directory: {cfg.get('download_dir', '/mnt/storage/YouTube')}")

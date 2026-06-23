@@ -2,6 +2,22 @@ const API_URL = 'http://127.0.0.1:5000';
 const dot = document.getElementById('statusDot');
 const text = document.getElementById('statusText');
 
+async function applyTheme() {
+  try {
+    const cached = await chrome.storage.local.get(['theme']);
+    if (cached.theme) {
+      document.documentElement.setAttribute('data-theme', cached.theme === 'light' ? 'light' : '');
+    }
+    const r = await fetch(`${API_URL}/api/settings`, { signal: AbortSignal.timeout(3000) });
+    if (r.ok) {
+      const data = await r.json();
+      const theme = data.theme || 'dark';
+      document.documentElement.setAttribute('data-theme', theme === 'light' ? 'light' : '');
+      await chrome.storage.local.set({ theme });
+    }
+  } catch {}
+}
+
 async function checkConnection() {
   try {
     const r = await fetch(`${API_URL}/api/info`, { signal: AbortSignal.timeout(3000) });
@@ -18,6 +34,7 @@ async function checkConnection() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  applyTheme();
   checkConnection();
   setInterval(checkConnection, 10000);
 

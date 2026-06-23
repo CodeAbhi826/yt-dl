@@ -1,0 +1,12 @@
+.git
+__pycache__
+*.pyc
+.env
+.gitignore
+REFACTOR_LOG.md
+README.md
+extension/
+config/
+install.fish
+install.sh
+yt-dl-handler.sh

@@ -1,0 +1,15 @@
+services:
+  yt-dl:
+    build: .
+    container_name: yt-dl
+    ports:
+      - "5000:5000"
+    volumes:
+      - yt-dl-data:/root/.local/share/yt-dl
+      - ./downloads:/mnt/storage/YouTube
+    environment:
+      - YTDL_API_KEY=
+    restart: unless-stopped
+
+volumes:
+  yt-dl-data:

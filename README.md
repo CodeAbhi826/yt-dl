@@ -4,16 +4,16 @@
 [![GitHub stars](https://img.shields.io/github/stars/CodeAbhi826/yt-dl?color=ffcb47&labelColor=1a1a1a&logo=github)](https://github.com/CodeAbhi826/yt-dl/stargazers)
 [![License](https://img.shields.io/github/license/CodeAbhi826/yt-dl?color=22c55e&labelColor=1a1a1a)](LICENSE)
 
-Self-hosted YouTube download daemon for Linux. Right-click any YouTube link in Brave, select quality, and the video downloads automatically — with KDE native notifications and a real-time web dashboard.
+Self-hosted YouTube download daemon for Linux. Right-click any YouTube link in your browser, select quality, and the video downloads automatically — with KDE native notifications and a real-time web dashboard.
 
 ---
 
 ## Features
 
-- **Right-click → Download** — Brave extension adds "Download with yt-dl" to YouTube context menus
+- **Right-click → Download** — Browser extension adds "Download with yt-dl" to YouTube context menus
 - **Quality selector** — 144p to 2160p plus audio-only MP3, selectable from the extension popup
 - **Real-time dashboard** — Live queue with progress bars, speed, ETA via SSE
-- **KDE Plasma notifications** — Custom toast popups when Brave is open, D-Bus fallback when closed
+- **KDE Plasma notifications** — Custom toast popups when browser is open, D-Bus fallback when closed
 - **Concurrent downloads** — Configurable parallel downloads (default 3)
 - **Download history & stats** — 7-day bar chart, success rate, total data downloaded
 - **Live logs** — Real-time log stream for debugging
@@ -26,8 +26,8 @@ Self-hosted YouTube download daemon for Linux. Right-click any YouTube link in B
 ### Prerequisites
 
 ```bash
-sudo pacman -S python python-flask yt-dlp brave-browser
-pip install --user dbus-python
+sudo pacman -S python python-pip yt-dlp
+pip install --user flask dbus-python
 ```
 
 ### Install
@@ -35,13 +35,13 @@ pip install --user dbus-python
 ```bash
 git clone https://github.com/CodeAbhi826/yt-dl.git
 cd yt-dl
-fish install.fish
+bash install.sh
 ```
 
-Then load the extension in Brave:
-1. Open `brave://extensions`
+Then load the extension in your browser:
+1. Open `chrome://extensions`
 2. Enable **Developer mode**
-3. Click **Load unpacked** and select the `extension/` directory
+3. Click **Load unpacked** and select `~/.local/share/yt-dl/extension/`
 
 ### Usage
 
@@ -54,10 +54,10 @@ Then load the extension in Brave:
 ## Architecture
 
 ```
-Brave Extension  ──►  Flask Daemon  ──►  yt-dlp
-                       (port 5000)
-                       SQLite + SSE
-                       D-Bus notifications
+Browser Extension  ──►  Flask Daemon  ──►  yt-dlp
+                        (port 5000)
+                        SQLite + SSE
+                        D-Bus notifications
 ```
 
 ---
@@ -118,7 +118,8 @@ Edit at `http://localhost:5000/settings` or directly in `~/.local/share/yt-dl/co
 │   ├── yt-dl.service       # systemd user service
 │   └── yt-dl.desktop       # Desktop entry
 ├── yt-dl-handler.sh        # Right-click handler script
-└── install.fish            # Installer script
+├── install.sh               # Installer script
+└── install.fish             # Fish installer (optional)
 ```
 
 ---

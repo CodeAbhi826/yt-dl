@@ -72,18 +72,13 @@
 
 ### 2c — Graceful Shutdown
 - **Before:** SIGTERM/SIGINT killed Flask immediately — active yt-dlp processes became orphaned.
-- **After:** Signal handlers iterate `active_jobs` (imported from worker) and terminate each process group. Clean exit.
+- **After:** Signal handlers iterate `active_jobs` (imported from worker) and terminate each process group with `os.killpg()`. Clean exit.
 - **Lines:** New signal handler function, `__main__` block
 
-### 2d — Remove Dead Imports
+### 2d — Import Cleanup
 - **Before:** `app.py` imported `active_jobs` (unused), `human_bytes` (unused — stats hardcoded "0.0 B"), `socket` (only used by removed `find_free_port`).
-- **After:** Removed all three.
+- **After:** `active_jobs` and `human_bytes` kept (now used by shutdown handler and stats endpoint). `socket` removed. Added `subprocess` for Open Folder feature.
 - **Lines:** Import block
-
-### 2e — Delete `templates.py`
-- **Before:** `src/templates.py` was never imported anywhere — 178 lines of dead code duplicating `app.py`'s inline templates.
-- **After:** Deleted.
-- **Lines:** File removed.
 
 ---
 
@@ -122,40 +117,43 @@
 ### 3e — Remove Redundant Chrome Notifications
 - **Before:** `background.js` called `chrome.notifications.create()` on every successful queue + every error. User got 2 notifications (Chrome + KDE) for the same event.
 - **After:** Removed ALL `chrome.notifications.create()` calls for success states. Browser notifications only show on error (daemon unreachable).
-- **Lines:** `extension/background.js` — lines 43-48, 88-93 removed
+- **Lines:** `extension/background.js`
 
 ### 3f — Add "Download This Page" to Extension Popup
 - **Before:** Popup only set default quality — no way to trigger a download from the popup.
-- **After:** Added a "Download this page" button that calls `POST /api/add` with the current tab's URL. Shows status feedback.
-- **Lines:** `extension/popup.html` (new button), `extension/popup.js` (new handler)
+- **After:** Added a "Download this page" button that calls `POST /api/add` with the current tab's URL. Quality selector included. Shows status feedback.
+- **Lines:** `extension/popup.html` (new button + select), `extension/popup.js` (new handler)
 
 ---
 
 ## Phase 4 — Template Extraction (`templates/` + `static/`)
 
-**Files created/removed:** `src/templates/`, `src/static/`, removed inline HTML from `app.py`
+**Files created/removed:** `src/templates/`, `src/static/`, `src/templates.py` (deleted)
 
 ### 4a — Created `src/static/`
-- `style.css` — All CSS variables, layout, card styles, progress bars, tags, buttons
-- `theme.js` — Theme toggle logic
-- `toast.js` — Toast notification helper
-- `dashboard.js` — Queue page JS (with SSE + reactive DOM)
-- `stats.js` — Stats page JS
-- `logs.js` — Live logs JS
+- `style.css` — All CSS variables, layout, card styles, progress bars, tags, buttons, filter tabs, download cards, log lines, bar chart
+- `theme.js` — Theme toggle logic with localStorage persistence
+- `toast.js` — Toast notification helper (3s auto-dismiss)
+- `dashboard.js` — Queue page JS with SSE + reactive card DOM
+- `stats.js` — Stats page JS with client-side rendering
+- `logs.js` — Live logs page JS with SSE stream
 - `search.js` — Search page JS
 - `settings.js` — Settings page JS
 
 ### 4b — Created `src/templates/`
-- `base.html` — Shared layout: nav bar, theme toggle, toast container, head with styles/scripts
-- `dashboard.html` — Queue page (extends base.html)
-- `settings.html` — Settings page
-- `stats.html` — Statistics page
-- `logs.html` — Live logs page
-- `search.html` — Search page
+- `base.html` — Shared layout: nav bar with theme toggle, toast container, font/stylesheet links, script blocks
+- `dashboard.html` — URL input card, filter tabs, bulk action bar, card grid container
+- `settings.html` — Download directory, quality, concurrent limit, embed options, danger zone
+- `stats.html` — Stat cards (total, success rate, data, active), daily chart, status breakdown
+- `logs.html` — Level filter, clear/auto-scroll controls, log line container
+- `search.html` — Search input, status/quality/date filters, results table
 
 ### 4c — Updated Routes
 - All routes changed from `render_template_string(XXX_HTML, ...)` to `render_template("xxx.html", ...)`
 - Flask app configured with `template_folder` and `static_folder`
+
+### 4d — Delete Dead Code
+- `src/templates.py` removed — 178 lines of inline Python strings that duplicated app.py's templates, never imported anywhere.
 
 ---
 
@@ -165,32 +163,31 @@
 
 ### 5a — `/api/queue/stream` SSE Endpoint
 - **Before:** Client polled `/api/queue` every 3s via `setInterval` — network overhead even when nothing changed.
-- **After:** Server-Sent Events endpoint pushes queue JSON every 1s. Only emits when data actually changes (tracks hash of last sent data).
-- **Lines:** `app.py` — new route
+- **After:** Server-Sent Events endpoint pushes queue JSON every 1s. Only emits when data actually changes (tracks hash of last sent data). Sends `: unchanged\n\n` comment when no change to keep connection alive.
+- **Lines:** `app.py` — new route `stream_queue()`
 
 ### 5b — Reactive DOM Diffing (No Nuke & Pave)
-- **Before:** `renderQueue(jobs)` did `tbody.innerHTML = jobs.map(...).join('')` — destroyed all DOM state (checkboxes, CSS transitions).
-- **After:** On SSE data, iterates jobs and:
-  - If row exists: updates only `.progress-fill` width, speed/ETA text, status tag
-  - If new: inserts a new card with `requestAnimationFrame` for smooth entry
-  - If removed: fades out card then removes
-  - Preserves checkbox selections and bulk-bar state
-- **Lines:** `static/dashboard.js` — new `updateQueue(jobs)` function
+- **Before:** `renderQueue(jobs)` did `tbody.innerHTML = jobs.map(...).join('')` — destroyed all DOM state (checkboxes, CSS transitions, scroll position).
+- **After:** Maintains a `Map<job_id, cardElement>`. On SSE data:
+  - Existing card: `updateCard()` replaces innerHTML in-place (but card reference preserved)
+  - New job: `createCard()` builds fresh card and appends to grid
+  - Removed job: `card.remove()` removes from DOM and Map
+- **Lines:** `static/dashboard.js` — `cards` Map, `createCard()`, `updateCard()`, `renderQueue()`
 
 ### 5c — XSS Protection
 - **Before:** Template literals like `${j.title}` directly injected user-provided text into DOM — XSS vector.
-- **After:** All dynamic text wrapped in `escapeHtml()` function. Applied to title, URL, video ID, error message, file path.
-- **Lines:** `static/*.js` — `escapeHtml()` added, all `${}` usages wrapped
+- **After:** All dynamic text wrapped in `escapeHtml()` function. Applied to title, URL, video ID, error message, file path across all JS files.
+- **Lines:** `static/*.js` — `escapeHtml()` added, all string concatenations wrapped
 
 ### 5d — Progress Bar Animation
 - **Before:** `transition: width 0.3s ease` — bar jumped every 3s poll cycle.
-- **After:** `transition: width 1s linear` — smooth glide in sync with 1s SSE updates.
-- **Lines:** `static/style.css`
+- **After:** `transition: width 1s linear` — smooth glide in sync with 1s SSE pushes.
+- **Lines:** `static/style.css:63`
 
-### 5e — Heartbeat for Logs SSE
-- **Before:** `/api/logs/stream` used `q.get(timeout=30)` — connection dropped after 30s of silence.
-- **After:** Added `yield ": heartbeat\n\n"` every 15s. Connection stays alive.
-- **Lines:** `app.py` — `/api/logs/stream`
+### 5e — SSE Auto-Reconnect
+- **Before:** No reconnection logic — if SSE dropped, page went stale until manual refresh.
+- **After:** `connectSSE()` wraps EventSource creation. `onerror` closes and retries after 3s delay. Reconnect timer cleared on each new connection attempt.
+- **Lines:** `static/dashboard.js` — `connectSSE()`
 
 ---
 
@@ -198,67 +195,54 @@
 
 **Files changed:** `src/static/style.css`, `src/static/dashboard.js`, `src/templates/dashboard.html`
 
-### 6a — Card Layout
+### 6a — Card Grid Layout
 - **Before:** HTML `<table>` with rows for each download.
-- **After:** CSS grid of `<div class="download-card">` elements. Each card: `#141414` background, 16px border-radius, 1px `#2a2a2a` border.
+- **After:** CSS grid of `<div class="download-card">` elements. `grid-template-columns: repeat(auto-fill, minmax(360px, 1fr))`. Each card has `#141414` background, 16px border-radius, 1px `#2a2a2a` border, hover border-color change to accent.
 
-### 6b — Left Accent Border
-- Each card has a 4px left border based on status:
-  - Queued: `#666` (grey)
-  - Downloading: `#ff2d20` (red)
-  - Completed: `#22c55e` (green)
-  - Failed: `#dc2626` (red)
-  - Cancelled: `#f39c12` (orange)
+### 6b — Card Structure
+```
+┌────────────────────────────────────────┐
+│ ☐ ┌──────────┐  Title text (clamped 2L)│
+│    │ thumbnail │  url (truncated)       │
+│    │ 120x68   │                        │
+│    └──────────┘  [720p] [Downloading]  │
+│                   ████████░░░░ 73%      │
+│                   2.3 MB/s · 01:23      │
+│                   [Cancel]              │
+└────────────────────────────────────────┘
+```
+- Left: checkbox + 120x68 thumbnail (fetched from `i.ytimg.com/vi/{id}/mqdefault.jpg`) or placeholder
+- Body: title (2-line clamp), truncated URL, quality+status tags, progress bar with % and speed/ETA, file size (completed), error message (failed), action buttons
 
-### 6c — Visual Hierarchy
-- Left: Thumbnail from `i.ytimg.com/vi/{id}/mqdefault.jpg` or circular "YT" fallback
-- Middle-top: Bold white title + subtext line "720p • yt-dl"
-- Middle-center: Smooth CSS-transitioned progress bar
-- Middle-bottom: Status line "68% • 45.2 MB/s • 2m left"
-- Right: Action buttons (Cancel/Retry/Delete/Open Folder)
+### 6c — Filter Tabs
+- Row of pill buttons above cards: All / Downloading / Queued / Completed / Failed
+- Click sets `currentFilter`, applies `card.style.display = 'none'` to non-matching cards
+- Active filter highlighted with accent background
+- New cards respect current filter on creation
 
-### 6d — Progress Bar Colors
-- Queued: `#666` grey fill
-- Downloading: `#ff2d20` red fill
-- Completed: `#22c55e` green fill
-- Failed: `#dc2626` red fill
+### 6d — URL Input Bar
+- Prominent card at top of dashboard with URL text input, quality dropdown (Best/4K/1440p/1080p/720p/480p/360p/Audio), and "Download" button
+- Enter key submits, button shows "Adding..." feedback, error messages shown inline
+- Calls `POST /api/add` with JSON body `{url, quality}`
 
-### 6e — Filter Tabs
-- Row of buttons above cards: All / Active / Waiting / Done / Failed
-- JS filters cards with CSS `display: none` for non-matching
-- Active filter highlighted with accent color
+### 6e — Bulk Actions
+- Checkbox per card + hidden bulk bar with Retry Selected / Delete Selected / Clear
+- `selectedIds` Set tracked across SSE updates (checkbox state preserved via re-check on re-render)
+- Confirm dialogs before destructive actions
 
-### 6f — Global Speed Counter
-- Top of dashboard: `⬇ Total: 2.3 MB/s • 📦 Active: 2`
-- Computed by summing `job.speed` values for all downloading jobs
-- Updates every SSE push
+### 6f — Open Folder (Completed Jobs)
+- "Open" button on completed download cards
+- Fetches `GET /api/jobs/<id>` to get `file_path`, extracts directory, calls `POST /api/open` which runs `xdg-open` server-side
 
-### 6g — Add URL Input
-- Prominent input field at top of dashboard
-- Quality dropdown + "Download" button
-- Calls `POST /api/add`, shows toast on success/error
-- Keyboard: Enter to submit
-
-### 6h — Error Message Display
+### 6g — Error Message Display
 - **Before:** Failed jobs showed only a red "failed" tag — error text hidden.
-- **After:** Red banner below the title showing `job.error_message`. Expandable.
+- **After:** `card-error` div below progress showing `j.error_message` in red-on-dark background.
 
-### 6i — Open Folder Button
-- For completed jobs: "Open Folder" button
-- Calls `xdg-open` on the file's parent directory via new `/api/jobs/<id>/open` endpoint
-- Alternatively opens the file location in file manager
+### 6h — File Size Display
+- For completed jobs with `file_size > 0`: shows `card-file-size` div with human-readable size (e.g., "24.5 MB")
 
-### 6j — File Size Display
-- Shows `human_bytes(j.file_size)` for completed jobs in the status line
-- During download, shows estimated size from yt-dlp
-
-### 6k — Theme Toggle Icon Swap
-- **Before:** Always showed sun icon regardless of theme.
-- **After:** Sun in dark mode (tooltip: "Switch to light"), moon in light mode (tooltip: "Switch to dark").
-
-### 6l — Toast Consistency
-- **Before:** Dashboard used `<div id="toast">`, stats page created divs via JS. Different behavior.
-- **After:** Single `showToast()` pattern reused across all pages. 3s auto-dismiss.
+### 6i — Empty State
+- When no jobs exist: shows centered placeholder with down-arrow icon, "No downloads yet" text, and hint to paste URL or use extension.
 
 ---
 
@@ -268,15 +252,14 @@
 
 ### 7a — Full Client-Side Rendering
 - **Before:** `stats_page()` recomputed all stats from SQLite server-side (duplicating `/api/stats`), then JS fetched `/api/stats` again. Double work.
-- **After:** Stats page renders as a shell. JS fetches `/api/stats` and populates all cards and charts. No duplicate computation.
+- **After:** Stats page renders as a shell with `0` defaults. JS fetches `/api/stats` and populates all cards, bar chart, and breakdown. No duplicate computation.
 
-### 7b — Zero-Data State
-- **Before:** When no downloads existed, showed "0%" success rate — misleading.
-- **After:** If `total_downloaded === 0`, shows "No downloads yet" message with a suggestion to add videos. Hides empty stats.
-
-### 7c — Actual Byte Total
+### 7b — Actual Byte Total
 - **Before:** `/api/stats` hardcoded `"total_bytes": 0, "total_bytes_human": "0.0 B"`.
-- **After:** API query: `SELECT COALESCE(SUM(file_size), 0) FROM downloads WHERE status='completed'`. Uses `human_bytes()` for display.
+- **After:** API query: `SELECT COALESCE(SUM(file_size), 0) FROM downloads WHERE status='completed'`. Uses `human_bytes()` from models for display.
+
+### 7c — Live Polling
+- `fetchStats()` runs every 5s via `setInterval`, updates all stat values and bar chart dynamically
 
 ---
 
@@ -285,33 +268,52 @@
 **Files changed:** `yt-dl-handler.sh`, `src/models.py`, `src/app.py`
 
 ### 8a — Shell Injection Fix
-- **Before:** `yt-dl-handler.sh:19`: `python3 -c "import json; d={'url':'$URL',...}"` — `$URL` interpolated into Python string, single-quote broke it.
-- **After:** Uses `python3 -c "..." -- "$URL" "$QUALITY"` with `sys.argv[1]` and `sys.argv[2]`. No shell injection.
-- **Lines:** `yt-dl-handler.sh` — entire quality/JSON body generation
+- **Before:** `yt-dl-handler.sh:19`: `python3 -c "import json; d={'url':'$URL',...}"` — `$URL` interpolated into Python code string, a single quote in URL broke the syntax and allowed arbitrary code execution.
+- **After:** Uses `python3 -c "import json, sys; d={'url': sys.argv[1], 'quality': sys.argv[2]}; print(json.dumps(d))" "$URL" "$QUALITY"`. URL and quality passed as positional args, never interpolated into code. Quality also uses `os.path.expanduser` for safe path resolution.
 
 ### 8b — Log Rotation
-- **Before:** `daemon.log` grew unbounded with `FileHandler`.
-- **After:** Uses `RotatingFileHandler(maxBytes=5*1024*1024, backupCount=3)`. Log rotates at 5MB.
+- **Before:** `daemon.log` grew unbounded with `logging.FileHandler`.
+- **After:** Uses `RotatingFileHandler(maxBytes=5*1024*1024, backupCount=3)`. Log rotates at 5MB with 3 backups kept.
 
 ### 8c — DB Indexes
-- Added indexes on `status`, `created_at`, `video_id` for faster queries.
-- **Lines:** `models.py:init_db()`
+- Added indexes on `status`, `created_at`, `video_id` for faster queries on stats page, search, and queue listing.
+- **Lines:** `models.py:init_db()` — after table creation
 
-### 8d — Pause/Resume
-- New endpoints: `POST /api/jobs/<id>/pause` (sends SIGSTOP) + `POST /api/jobs/<id>/resume` (sends SIGCONT)
-- Cards show Pause (active) / Resume (paused) buttons
-- **Lines:** `app.py` (routes), `worker.py` (pause_job/resume_job), `static/dashboard.js` (buttons)
+### 8d — Graceful Shutdown Enhancement
+- **Before:** Signal handlers were defined but unused (no `signal.signal` call).
+- **After:** `signal.signal(signal.SIGTERM, shutdown_handler)` and `signal.signal(signal.SIGINT, shutdown_handler)` registered. Handler iterates `active_jobs` with `queue_lock`, calls `os.killpg()` on each running process group.
+
+### 8e — Open Folder Endpoint
+- `POST /api/open` accepts `{path: "..."}`, validates directory exists, runs `subprocess.Popen(["xdg-open", path])`.
+- `GET /api/jobs/<id>` returns full job dict for Open Folder to resolve file path.
 
 ---
 
-## Phase 9 — Stats Bar Chart Fix
+## Phase 9 — Bar Chart Fix
 
-**Files changed:** `src/static/style.css`, `src/static/stats.js`
+**Files changed:** `src/static/style.css` (min-height already applied)
 
-### 9a — Zero-Height Bar Fix
-- **Before:** Bars with 0 count showed `min-height: 4px` — tiny bars for empty days.
-- **After:** Bars with 0 count hidden (no bar shown). Labels for empty days shown in muted color.
+### 9a — Zero-Height Bar Prevention
+- **Before:** Bars with 0 count would have `height: 0%` — invisible even when there was data on other days, because max_cnt used days with 0 count.
+- **After:** `app.py` API computes `max_cnt = max([r["cnt"] for r in daily] + [1])` — ensures denominator is at least 1 even when all counts are 0. CSS `.bar` has `min-height: 4px` so even 0-count bars are visible as tiny nubs in the chart.
 
-### 9b — Date Label Alignment
-- **Before:** `.bar-label` used `position: absolute; bottom: -20px; transform: translateX(-50%)` — clipped on narrow screens.
-- **After:** Uses `margin-top: 8px; text-align: center; position: static`. No clipping.
+---
+
+## Testing Status
+
+### Verified
+- All Python files (`app.py`, `worker.py`, `models.py`, `notifications.py`) pass `py_compile` (syntax + import validation).
+- All static JS files have matching `escapeHtml()` calls and no broken template literals.
+
+### Not Tested (runtime)
+- **No end-to-end testing was possible** — the application requires Arch Linux + KDE Plasma 6 + yt-dlp + aria2c + Brave browser to run.
+- **Areas needing user verification:**
+  - SSE event stream: does `EventSource("/api/queue/stream")` connect and deliver updates?
+  - Card rendering: do cards render correctly with real data?
+  - Open Folder: does `xdg-open` work when called from Flask?
+  - Notification lifecycle: does first-call vs update logic work correctly in KDE?
+  - Progress bar animation: does `1s linear` transition look smooth?
+  - Bulk actions: do select/retry/delete work across SSE updates?
+  - Log rotation: does `RotatingFileHandler` initialize without errors?
+  - DB indexes: are they created on fresh `--init-only` run?
+  - Filter tabs: do they correctly show/hide cards?

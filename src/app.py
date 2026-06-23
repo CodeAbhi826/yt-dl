@@ -275,6 +275,7 @@ def api_stats():
     failed = db.execute("SELECT COUNT(*) as c FROM downloads WHERE status='failed'").fetchone()["c"]
     active = db.execute("SELECT COUNT(*) as c FROM downloads WHERE status='downloading'").fetchone()["c"]
     daily = db.execute("SELECT date(created_at) as day, COUNT(*) as cnt FROM downloads WHERE created_at >= date('now', '-7 days') GROUP BY day ORDER BY day").fetchall()
+    total_bytes = db.execute("SELECT COALESCE(SUM(file_size), 0) as s FROM downloads WHERE status='completed'").fetchone()["s"]
     db.close()
 
     max_cnt = max([r["cnt"] for r in daily] + [1])
@@ -288,8 +289,6 @@ def api_stats():
         {"label": "Failed", "count": failed, "color": "#dc2626", "pct": round(failed/total*100,1) if total else 0},
         {"label": "Other", "count": total - success - failed, "color": "#666666", "pct": round((total-success-failed)/total*100,1) if total else 0},
     ]
-
-    total_bytes = db.execute("SELECT COALESCE(SUM(file_size), 0) as s FROM downloads WHERE status='completed'").fetchone()["s"]
 
     return jsonify({
         "total_downloaded": total,
@@ -459,10 +458,20 @@ if __name__ == "__main__":
     if "--init-only" in sys.argv:
         init_db()
         load_config()
+        # Migrate old "done" status to "completed"
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.execute("UPDATE downloads SET status='completed' WHERE status='done'")
+        conn.commit()
+        conn.close()
         logger.info("Database initialized. Exiting (--init-only).")
         sys.exit(0)
 
     init_db()
+    # Migrate old "done" status to "completed"
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.execute("UPDATE downloads SET status='completed', progress=100.0 WHERE status='done'")
+    conn.commit()
+    conn.close()
     cfg = load_config()
     ring_log.max_lines = cfg.get("max_log_lines", 500)
     port = 5000

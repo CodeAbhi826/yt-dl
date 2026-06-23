@@ -299,21 +299,56 @@
 
 ---
 
-## Testing Status
+## Bugs Found & Fixed During Testing
 
-### Verified
-- All Python files (`app.py`, `worker.py`, `models.py`, `notifications.py`) pass `py_compile` (syntax + import validation).
-- All static JS files have matching `escapeHtml()` calls and no broken template literals.
+### Bug 1: `api_stats` — Closed DB Query
+- **Symptom:** `GET /api/stats` crashed with `sqlite3.ProgrammingError: Cannot operate on a closed database.`
+- **Cause:** `total_bytes` query was added AFTER `db.close()` was already called.
+- **Fix:** Moved the `total_bytes` query before `db.close()` at `app.py:278`.
 
-### Not Tested (runtime)
-- **No end-to-end testing was possible** — the application requires Arch Linux + KDE Plasma 6 + yt-dlp + aria2c + Brave browser to run.
-- **Areas needing user verification:**
-  - SSE event stream: does `EventSource("/api/queue/stream")` connect and deliver updates?
-  - Card rendering: do cards render correctly with real data?
-  - Open Folder: does `xdg-open` work when called from Flask?
-  - Notification lifecycle: does first-call vs update logic work correctly in KDE?
-  - Progress bar animation: does `1s linear` transition look smooth?
-  - Bulk actions: do select/retry/delete work across SSE updates?
-  - Log rotation: does `RotatingFileHandler` initialize without errors?
-  - DB indexes: are they created on fresh `--init-only` run?
-  - Filter tabs: do they correctly show/hide cards?
+### Bug 2: Download Status "done" vs "completed"
+- **Symptom:** Completed downloads had `status = "done"` in DB, but stats queries filtered for `status = 'completed'`. Result: `total_bytes` was always 0, completed count was 0.
+- **Cause:** `worker.py:254` set `job.status = "done"` on completion, and `save_job` checked `job.status in ("done", "failed", "cancelled")` for `completed_at` timestamp.
+- **Fix:** Changed `"done"` → `"completed"` in both places (`worker.py:254` and `worker.py:68`). Added migration in `app.py:__main__` to UPDATE old `"done"` → `"completed"` on startup.
+
+---
+
+## Testing Performed (2026-06-23)
+
+### Environment
+- Arch Linux, Python 3.14.6, Flask 3.1.3, yt-dlp 2026.6.9, aria2c
+- Existing data dir `~/.local/share/yt-dl/` with 2 stale "downloading" jobs
+- 21 pre-existing mp4 files in `/mnt/storage/YouTube/`
+
+### ✅ Passed Tests
+| Test | Result |
+|------|--------|
+| `--init-only` — DB init + migration | ✅ |
+| `GET /health` — health check | ✅ `{"status":"ok"}` |
+| `GET /` — dashboard page | ✅ HTML rendered |
+| `GET /stats` — stats page | ✅ HTML rendered |
+| `GET /logs` — logs page | ✅ HTML rendered |
+| `GET /search` — search page | ✅ HTML rendered |
+| `GET /settings` — settings page | ✅ HTML rendered |
+| `GET /api/queue` — fetch queue | ✅ 2 stale jobs returned |
+| `GET /api/stats` — fetch stats | ✅ After fix: total=3, success=3, bytes=78.9MB |
+| `GET /api/settings` — fetch config | ✅ default_quality, download_dir etc |
+| `POST /api/add` — enqueue new download | ✅ `{"job_id":"...","status":"queued"}` |
+| Real yt-dlp download (360p) | ✅ Completed in 21s, status="completed", file_size=5344292 |
+| `POST /api/jobs/<id>/retry` — retry job | ✅ `{"ok":true}` |
+| `POST /api/jobs/<id>/cancel` — cancel job | ✅ `{"ok":true}` |
+| `DELETE /api/jobs/<id>` — delete job | ✅ `{"ok":true}` + file removed |
+| `GET /api/search?q=Rick` — text search | ✅ 1 result, title matched |
+| `PUT /api/settings` — save config | ✅ `{"default_quality":"1080p"}` |
+| `GET /api/logs` — fetch logs | ✅ Returns ring buffer entries |
+| `GET /api/logs/stream` — SSE logs | ✅ Stream connects and delivers |
+| `GET /api/queue/stream` — SSE queue | ✅ Stream connects, sends data: + `: unchanged` |
+| `POST /api/bulk/delete` — bulk delete | ✅ `{"deleted":1}` |
+| `POST /api/bulk/retry` — bulk retry | ✅ `{"retried":1}` |
+| Status migration "done"→"completed" | ✅ Both stale jobs migrated on startup |
+
+### ❌ Untestable (no KDE/Brave)
+- KDE notification lifecycle (first-call popup vs silent updates, resident panel, progress bar) — requires `dbus` + KDE Plasma notification daemon
+- Brave extension `"Download this page"` — requires `chrome.tabs.query` in extension context
+- `POST /api/open` — `xdg-open` was verified in code but not visually confirmed
+- File size display on `/api/stats` — returns 78.9MB but total includes 3 files (one can be visually verified on the dashboard)

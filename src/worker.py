@@ -65,7 +65,7 @@ def save_job(job):
         """, (job.title, job.status, job.progress, job.speed, job.eta,
               job.file_path, job.file_size, job.error_message,
               datetime.now().isoformat() if job.status == "downloading" else None,
-              datetime.now().isoformat() if job.status in ("done", "failed", "cancelled") else None,
+              datetime.now().isoformat() if job.status in ("completed", "failed", "cancelled") else None,
               job.job_id))
         db.commit()
     except Exception as e:
@@ -251,7 +251,7 @@ def run_download(job, download_dir):
                 job.file_path = str(video_files[0])
 
         if proc.returncode == 0 and job.file_path:
-            job.status = "done"
+            job.status = "completed"
             job.progress = 100.0
             if os.path.exists(job.file_path):
                 job.file_size = os.path.getsize(job.file_path)
@@ -274,7 +274,7 @@ def run_download(job, download_dir):
         save_job(job)
 
         if notification_manager:
-            if job.status == "done":
+            if job.status == "completed":
                 notification_manager.show_done(job.job_id, job.title, job.quality, job.file_path)
             elif job.status == "failed":
                 notification_manager.show_failed(job.job_id, job.title, job.quality, job.error_message)

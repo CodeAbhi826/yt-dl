@@ -170,9 +170,7 @@ def run_download(job, download_dir):
     )
 
     download_cmd.extend([
-        "--downloader", "aria2c",
-        "--downloader-args", "aria2c:-x 16 -s 16 -k 1M",
-        "--newline", "--progress", "--no-simulate",
+        "--newline", "--progress",
         "--progress-template", progress_template,
         "-P", str(download_dir),
         "-o", "%(title)s [%(id)s].%(ext)s",

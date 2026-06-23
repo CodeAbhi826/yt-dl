@@ -306,6 +306,12 @@
 - **Cause:** `total_bytes` query was added AFTER `db.close()` was already called.
 - **Fix:** Moved the `total_bytes` query before `db.close()` at `app.py:278`.
 
+### Bug 3: aria2c prevents real-time progress
+- **Symptom:** Progress stayed at 0.0% for 20+ seconds then jumped to 100%. Only 2 JSON progress lines per download.
+- **Cause:** `--downloader aria2c` — aria2c handles downloads internally and only notifies yt-dlp at 100% completion per stream. No intermediate progress reported.
+- **Fix:** Removed `--downloader aria2c` and `--downloader-args` from download command. yt-dlp's native downloader provides real-time progress (30+ JSON lines per download), smooth percentage updates, and actual speed/ETA. Also faster for merged downloads (15.8s vs 29.9s for same video) because `--merge-output-format mp4` requires post-processing that overlaps better with native download.
+- **Lines:** `worker.py:172-174` (removed aria2c args)
+
 ### Bug 2: Download Status "done" vs "completed"
 - **Symptom:** Completed downloads had `status = "done"` in DB, but stats queries filtered for `status = 'completed'`. Result: `total_bytes` was always 0, completed count was 0.
 - **Cause:** `worker.py:254` set `job.status = "done"` on completion, and `save_job` checked `job.status in ("done", "failed", "cancelled")` for `completed_at` timestamp.
@@ -334,7 +340,9 @@
 | `GET /api/stats` — fetch stats | ✅ After fix: total=3, success=3, bytes=78.9MB |
 | `GET /api/settings` — fetch config | ✅ default_quality, download_dir etc |
 | `POST /api/add` — enqueue new download | ✅ `{"job_id":"...","status":"queued"}` |
-| Real yt-dlp download (360p) | ✅ Completed in 21s, status="completed", file_size=5344292 |
+| Real yt-dlp download (360p native) | ✅ Completed in 21s, status="completed", file_size=5344292 |
+| Real yt-dlp download (720p Despacito) | ✅ Completed, 54MB, 100% progress with smooth real-time updates |
+| Real-time progress during download | ✅ 0%→8.2%→17.3%→...→100% with speed + ETA every 2s |
 | `POST /api/jobs/<id>/retry` — retry job | ✅ `{"ok":true}` |
 | `POST /api/jobs/<id>/cancel` — cancel job | ✅ `{"ok":true}` |
 | `DELETE /api/jobs/<id>` — delete job | ✅ `{"ok":true}` + file removed |

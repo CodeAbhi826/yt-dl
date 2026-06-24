@@ -8,13 +8,7 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: 'yt-dl-download',
     title: 'Download with yt-dl',
-    contexts: ['link'],
-    targetUrlPatterns: [
-      '*://*.youtube.com/watch*',
-      '*://*.youtube.com/shorts*',
-      '*://youtu.be/*',
-      '*://*.youtube.com/embed/*'
-    ]
+    contexts: ['link']
   });
   chrome.alarms.create('heartbeat', { periodInMinutes: 0.5 });
   chrome.alarms.create('poll', { periodInMinutes: 0.1 });

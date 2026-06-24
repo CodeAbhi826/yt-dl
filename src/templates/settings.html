@@ -15,15 +15,62 @@
 <input type="text" class="form-input" id="download_dir" value="{{ download_dir }}">
 </div>
 <div class="form-group">
+<label class="form-label">Default Quality</label>
+<select class="form-input" id="default_quality">
+<option value="144p" {% if default_quality == "144p" %}selected{% endif %}>144p</option>
+<option value="240p" {% if default_quality == "240p" %}selected{% endif %}>240p</option>
+<option value="360p" {% if default_quality == "360p" %}selected{% endif %}>360p</option>
+<option value="480p" {% if default_quality == "480p" %}selected{% endif %}>480p</option>
+<option value="720p" {% if default_quality == "720p" %}selected{% endif %}>720p</option>
+<option value="1080p" {% if default_quality == "1080p" %}selected{% endif %}>1080p</option>
+<option value="1440p" {% if default_quality == "1440p" %}selected{% endif %}>1440p</option>
+<option value="2160p" {% if default_quality == "2160p" %}selected{% endif %}>2160p</option>
+<option value="best" {% if default_quality == "best" %}selected{% endif %}>Best</option>
+<option value="audio" {% if default_quality == "audio" %}selected{% endif %}>Audio</option>
+</select>
+</div>
+<div class="form-group">
 <label class="form-label">Concurrent Downloads</label>
 <input type="number" class="form-input" id="concurrent_limit" value="{{ concurrent_limit }}" min="1" max="10">
 </div>
 <div class="form-group">
 <label class="form-label">Filename Pattern</label>
-<input type="text" class="form-input" id="output_pattern" value="%(title)s.%(ext)s" placeholder="%(title)s.%(ext)s">
+<input type="text" class="form-input" id="output_pattern" value="{{ output_pattern }}" placeholder="%(title)s.%(ext)s">
 <p style="font-size:11px;color:var(--text-muted);margin-top:4px;">
 Uses yt-dlp output template. Example: <code>%(channel)s/%(title)s.%(ext)s</code> for channel subdirectories.
 </p>
+</div>
+<div class="form-group">
+<label class="form-label">Playlist Limit</label>
+<input type="number" class="form-input" id="playlist_limit" value="{{ playlist_limit }}" min="1" max="1000">
+<p style="font-size:11px;color:var(--text-muted);margin-top:4px;">Max videos to queue from a playlist.</p>
+</div>
+</div>
+<div class="card">
+<div class="card-title">Embed Options</div>
+<div class="form-group" style="display:flex;align-items:center;gap:8px;">
+<input type="checkbox" id="embed_metadata" {% if embed_metadata %}checked{% endif %}>
+<label for="embed_metadata">Metadata</label>
+</div>
+<div class="form-group" style="display:flex;align-items:center;gap:8px;">
+<input type="checkbox" id="embed_thumbnail" {% if embed_thumbnail %}checked{% endif %}>
+<label for="embed_thumbnail">Thumbnail</label>
+</div>
+<div class="form-group" style="display:flex;align-items:center;gap:8px;">
+<input type="checkbox" id="embed_chapters" {% if embed_chapters %}checked{% endif %}>
+<label for="embed_chapters">Chapters</label>
+</div>
+<div class="form-group" style="display:flex;align-items:center;gap:8px;">
+<input type="checkbox" id="embed_subs" {% if embed_subs %}checked{% endif %}>
+<label for="embed_subs">Subtitles</label>
+</div>
+</div>
+<div class="card">
+<div class="card-title">Webhook</div>
+<div class="form-group">
+<label class="form-label">Webhook URL</label>
+<input type="url" class="form-input" id="webhook_url" placeholder="https://hooks.example.com/yt-dl" value="{{ webhook_url }}">
+<p style="font-size:11px;color:var(--text-muted);margin-top:4px;">POST JSON payload on download completion/failure. Leave empty to disable.</p>
 </div>
 </div>
 <div class="card">
@@ -79,6 +126,14 @@ function saveSettings() {
     download_dir: document.getElementById("download_dir").value,
     concurrent_limit: parseInt(document.getElementById("concurrent_limit").value),
     output_pattern: document.getElementById("output_pattern").value,
+    default_quality: document.getElementById("default_quality").value,
+    playlist_limit: parseInt(document.getElementById("playlist_limit").value) || 200,
+    webhook_url: document.getElementById("webhook_url").value || "",
+    embed_metadata: document.getElementById("embed_metadata").checked,
+    embed_thumbnail: document.getElementById("embed_thumbnail").checked,
+    embed_chapters: document.getElementById("embed_chapters").checked,
+    embed_subs: document.getElementById("embed_subs").checked,
+    theme: document.getElementById("theme") ? document.getElementById("theme").value : "dark",
   };
   fetch("/api/settings", {method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(cfg)})
     .then(r=>r.json()).then(d=> showToast("Settings saved"));

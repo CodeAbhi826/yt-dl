@@ -166,7 +166,7 @@ def health():
 def api_info():
     return jsonify({
         "dbus_available": dbus_available(),
-        "version": "1.0",
+        "version": "1.1",
         "auth_required": bool(API_KEY),
     })
 
@@ -530,6 +530,14 @@ def settings_page():
     return render_template("settings.html", active="settings",
                            download_dir=cfg.get("download_dir", "/mnt/storage/YouTube"),
                            concurrent_limit=cfg.get("concurrent_limit", 3),
+                           output_pattern=cfg.get("output_pattern", "%(title)s.%(ext)s"),
+                           default_quality=cfg.get("default_quality", "720p"),
+                           playlist_limit=cfg.get("playlist_limit", 200),
+                           webhook_url=cfg.get("webhook_url", ""),
+                           embed_metadata=cfg.get("embed_metadata", True),
+                           embed_thumbnail=cfg.get("embed_thumbnail", True),
+                           embed_chapters=cfg.get("embed_chapters", True),
+                           embed_subs=cfg.get("embed_subs", True),
                            theme=cfg.get("theme", "dark"))
 
 @app.route("/stats")

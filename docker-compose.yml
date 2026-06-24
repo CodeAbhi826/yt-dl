@@ -9,6 +9,7 @@ services:
       - ./downloads:/mnt/storage/YouTube
     environment:
       - YTDL_API_KEY=
+      - YTDL_BIND=0.0.0.0
     restart: unless-stopped
 
 volumes:

@@ -1,12 +1,7 @@
 // yt-dl Extension Background Script
 const API_URL = 'http://127.0.0.1:5000';
 const DEFAULT_QUALITY = '720p';
-
-// Notification polling state
 let prevJobs = {};
-let pollInterval = null;
-let heartbeatInterval = null;
-let dbusAvailable = false;
 
 // ─── Context Menu ───────────────────────────────────────────
 chrome.runtime.onInstalled.addListener(() => {
@@ -21,57 +16,24 @@ chrome.runtime.onInstalled.addListener(() => {
       '*://*.youtube.com/embed/*'
     ]
   });
-  initNotificationSystem();
+  chrome.alarms.create('heartbeat', { periodInMinutes: 0.5 });
+  chrome.alarms.create('poll', { periodInMinutes: 0.1 });
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  initNotificationSystem();
+  chrome.alarms.create('heartbeat', { periodInMinutes: 0.5 });
+  chrome.alarms.create('poll', { periodInMinutes: 0.1 });
 });
 
-// Make sure polling survives service worker inactivity
-chrome.runtime.onConnect.addListener(() => {});
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.type === 'wake') sendResponse({ok:true});
-});
-
-// ─── Init ────────────────────────────────────────────────────
-async function initNotificationSystem() {
-  try {
-    const res = await fetch(`${API_URL}/api/info`);
-    const info = await res.json();
-    dbusAvailable = info.dbus_available;
-  } catch {
-    dbusAvailable = false;
-  }
-
-  if (dbusAvailable) {
-    // Server handles D-Bus, skip extension notifications
-    startHeartbeat();
-    return;
-  }
-
-  // No D-Bus — extension handles notifications via custom popup
-  startHeartbeat();
-  startPolling();
-}
-
-// ─── Heartbeat ───────────────────────────────────────────────
-function startHeartbeat() {
-  if (heartbeatInterval) clearInterval(heartbeatInterval);
-  heartbeatInterval = setInterval(() => {
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'heartbeat') {
     fetch(`${API_URL}/api/extension/heartbeat`, { method: 'POST' }).catch(() => {});
-  }, 30000);
-  // Send initial heartbeat
-  fetch(`${API_URL}/api/extension/heartbeat`, { method: 'POST' }).catch(() => {});
-}
+  } else if (alarm.name === 'poll') {
+    pollQueue();
+  }
+});
 
 // ─── Notification Polling ────────────────────────────────────
-function startPolling() {
-  if (pollInterval) clearInterval(pollInterval);
-  pollInterval = setInterval(pollQueue, 5000);
-  pollQueue();
-}
-
 function pollQueue() {
   fetch(`${API_URL}/api/queue`)
     .then(r => r.json())
@@ -86,7 +48,11 @@ function processJobs(jobs) {
     seen[job.id] = true;
 
     if (!prev) {
-      // New job appeared
+      if (job.status === 'downloading') {
+        showNotification('started', job);
+      } else if (job.status === 'completed') {
+        showNotification('completed', job);
+      }
       prevJobs[job.id] = job.status;
       continue;
     }
@@ -95,15 +61,13 @@ function processJobs(jobs) {
       showNotification('completed', job);
     } else if (prev === 'downloading' && job.status === 'failed') {
       showNotification('failed', job);
-    } else if (!prev && job.status === 'completed') {
-      // Was already complete when we started tracking
-      showNotification('completed', job);
+    } else if (prev === 'queued' && job.status === 'downloading') {
+      showNotification('started', job);
     }
 
     prevJobs[job.id] = job.status;
   }
 
-  // Clean up stale entries
   for (const id in prevJobs) {
     if (!seen[id]) delete prevJobs[id];
   }
@@ -121,13 +85,15 @@ function showNotification(type, job) {
     meta += ` • mp4` + (size ? ` • ${size}` : '');
   } else if (type === 'failed') {
     meta = job.error_message || 'Unknown error';
+  } else if (type === 'started') {
+    meta += ' • Downloading';
   } else {
     meta += ' • Added to Queue';
   }
 
   const params = new URLSearchParams({
     type,
-    title: type === 'completed' ? 'Download Complete' : type === 'failed' ? 'Download Failed' : 'Download Started',
+    title: type === 'completed' ? 'Download Complete' : type === 'failed' ? 'Download Failed' : type === 'started' ? 'Download Started' : 'Download Queued',
     video: job.title || job.video_id || 'Unknown',
     meta,
     thumb,
@@ -136,13 +102,15 @@ function showNotification(type, job) {
   const url = chrome.runtime.getURL('notification.html') + '?' + params.toString();
 
   chrome.windows.getLastFocused({}, (win) => {
+    const left = win ? win.left + win.width - 444 : screen.availWidth - 444;
+    const top = win ? win.top + win.height - 160 : screen.availHeight - 160;
     chrome.windows.create({
       url,
       type: 'popup',
       width: 420,
       height: 130,
-      left: win.left + win.width - 444,
-      top: win.top + win.height - 160
+      left: Math.max(0, left),
+      top: Math.max(0, top)
     });
   });
 }
@@ -177,14 +145,11 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       throw new Error(err.error || 'Failed to queue download');
     }
   } catch (err) {
-    // Only show chrome notification if D-Bus isn't available
-    if (!dbusAvailable) {
-      chrome.notifications.create({
-        type: 'basic',
-        iconUrl: 'icons/icon48.png',
-        title: 'yt-dl Error',
-        message: err.message || 'Daemon not running'
-      });
-    }
+    chrome.notifications.create({
+      type: 'basic',
+      iconUrl: 'icons/icon48.png',
+      title: 'yt-dl Error',
+      message: err.message || 'Daemon not running'
+    });
   }
 });

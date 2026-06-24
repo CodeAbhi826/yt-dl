@@ -112,7 +112,7 @@ EXT_DIR="${INSTALL_DIR}/extension"
 mkdir -p "${EXT_DIR}/icons"
 cp "${SCRIPT_DIR}/extension/"*.html "${EXT_DIR}/" 2>/dev/null || true
 cp "${SCRIPT_DIR}/extension/"*.js "${EXT_DIR}/" 2>/dev/null || true
-cp "${SCRIPT_DIR}/extension/manifest.json "${EXT_DIR}/" 2>/dev/null || true
+cp "${SCRIPT_DIR}/extension/manifest.json" "${EXT_DIR}/" 2>/dev/null || true
 cp "${SCRIPT_DIR}/extension/icons/"* "${EXT_DIR}/icons/" 2>/dev/null || true
 info "Extension -> ${EXT_DIR}"
 

@@ -13,10 +13,35 @@ import logging
 from pathlib import Path
 from datetime import datetime
 
-from models import get_db, job_to_dict, load_config, QUALITY_MAP
+from models import get_db, job_to_dict, load_config, QUALITY_MAP, DATA_DIR
 
-COOKIES_PATH = Path.home() / ".local/share/yt-dl/cookies.txt"
+COOKIES_PATH = DATA_DIR / "cookies.txt"
 from notifications import NotificationManager
+
+
+def _fire_webhook(job):
+    try:
+        cfg = load_config()
+        url = cfg.get("webhook_url", "").strip()
+        if not url:
+            return
+        payload = json.dumps({
+            "event": job.status,
+            "job_id": job.job_id,
+            "title": job.title,
+            "quality": job.quality,
+            "file_path": job.file_path,
+            "file_size": job.file_size,
+            "error": job.error_message,
+        })
+        subprocess.run(
+            ["curl", "-s", "-X", "POST", url,
+             "-H", "Content-Type: application/json",
+             "-d", payload, "--max-time", "10"],
+            capture_output=True, timeout=15
+        )
+    except Exception as e:
+        logger.warning(f"Webhook error: {e}")
 
 logger = logging.getLogger("yt-dl")
 
@@ -128,9 +153,6 @@ def _process_queue():
                 name=f"download-{job.job_id[:8]}", daemon=True
             ).start()
 
-            if notification_manager:
-                notification_manager.show_queued(job.job_id, job.title, job.quality)
-
 
 def run_download(job, download_dir):
     cfg = load_config()
@@ -143,17 +165,20 @@ def run_download(job, download_dir):
             info = json.loads(result.stdout.strip().split("\n")[0])
             job.title = info.get("title", "Unknown")[:80]
             save_job(job)
+            if notification_manager:
+                notification_manager.show_queued(job.job_id, job.title, job.quality)
     except Exception as e:
         logger.warning(f"Info extraction failed: {e}")
 
     download_cmd = [
         "yt-dlp",
         "--format", format_str,
-        "--merge-output-format", "mp4",
     ]
 
     if job.quality == "audio":
         download_cmd.extend(["--extract-audio", "--audio-format", "mp3"])
+    else:
+        download_cmd.extend(["--merge-output-format", "mp4"])
 
     if cfg.get("embed_thumbnail"):
         download_cmd.append("--embed-thumbnail")
@@ -226,12 +251,22 @@ def run_download(job, download_dir):
                         save_job(job)
                         job.last_saved_progress = job.progress
                         job.last_update_time = now
+                        if notification_manager:
+                            notification_manager.update_downloading(
+                                job.job_id, job.title, job.quality,
+                                job.progress, job.speed, job.eta
+                            )
                 except Exception as e:
                     logger.debug(f"Progress parse error: {e}")
                 continue
 
             if line.startswith("[download] Destination: "):
                 dest = line.split("[download] Destination: ")[-1].strip()
+                job.file_path = dest
+                continue
+
+            if "[download]" in line and "has already been downloaded" in line:
+                dest = line.split("[download] ")[-1].split(" has already")[0].strip()
                 job.file_path = dest
                 continue
 
@@ -243,7 +278,7 @@ def run_download(job, download_dir):
 
         if not job.file_path or not os.path.exists(job.file_path) or os.path.getsize(job.file_path) == 0:
             video_files = []
-            safe_title = "".join(c for c in (job.title or "") if c.isalnum() or c in " _-")[:60]
+            safe_title = "".join(c for c in (job.title or "") if c.isalnum() or c in " _-.")[:60].replace("/", "⧸")
             for ext in [".mp4", ".mkv", ".webm", ".mp3", ".m4a"]:
                 video_files.extend(download_dir.glob(f"*{safe_title}*{ext}"))
             if not video_files:
@@ -281,6 +316,7 @@ def run_download(job, download_dir):
             elif job.status == "failed":
                 notification_manager.show_failed(job.job_id, job.title, job.quality, job.error_message)
 
+        _fire_webhook(job)
         process_queue()
 
 

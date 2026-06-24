@@ -10,6 +10,7 @@ import threading
 import queue
 import subprocess
 import logging
+import functools
 from logging.handlers import RotatingFileHandler
 import re
 import signal
@@ -141,6 +142,7 @@ API_KEY = os.environ.get("YTDL_API_KEY", "")
 def require_auth(f):
     if not API_KEY:
         return f
+    @functools.wraps(f)
     def wrapper(*args, **kwargs):
         auth = request.headers.get("Authorization", "")
         if auth != f"Bearer {API_KEY}":
@@ -438,6 +440,9 @@ def api_add_job():
     if not url:
         return jsonify({"error": "No URL provided"}), 400
 
+    if not re.match(r"https?://", url):
+        return jsonify({"error": "Invalid URL"}), 400
+
     video_id = ""
     m = re.search(r"(?:v=|/)([A-Za-z0-9_-]{11})", url)
     if m:
@@ -470,7 +475,9 @@ def api_add_job():
                         downloaded = {r["video_id"] for r in rows}
 
                 count = 0
-                for entry in entries[:50]:
+                cfg = load_config()
+                playlist_limit = cfg.get("playlist_limit", 200)
+                for entry in entries[:playlist_limit]:
                     eid = entry.get("id")
                     if not eid:
                         continue
@@ -586,16 +593,14 @@ if __name__ == "__main__":
     cfg = load_config()
     ring_log.max_lines = cfg.get("max_log_lines", 500)
     start_auto_updater()
-    port = 5000
-    logger.info(f"yt-dl v1.0 started — http://127.0.0.1:{port}")
+    host = os.environ.get("YTDL_BIND", "127.0.0.1")
+    port = int(os.environ.get("YTDL_PORT", 5000))
+    logger.info(f"yt-dl v1.0 started — http://{host}:{port}")
     logger.info(f"Downloads directory: {cfg.get('download_dir', '/mnt/storage/YouTube')}")
     logger.info(f"Concurrent downloads: {cfg.get('concurrent_limit', 3)}")
-    if not dbus_available():
-        logger.info("D-Bus not available — desktop notifications via extension only")
-    else:
-        logger.info("D-Bus available — desktop notifications enabled")
+    logger.info("Notifications handled by browser extension")
     try:
-        app.run(host="127.0.0.1", port=port, threaded=True, debug=False)
+        app.run(host=host, port=port, threaded=True, debug=False)
     except OSError as e:
         logger.error(f"Failed to bind to port {port}: {e}")
         logger.error("Is another instance already running?")

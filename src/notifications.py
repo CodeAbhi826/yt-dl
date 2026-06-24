@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
-"""KDE Plasma 6.7 notification module for yt-dl."""
+"""KDE Plasma notification module for yt-dl (currently disabled)."""
 
 import os
 import time
-import dbus
 import logging
+
+try:
+    import dbus as _dbus_module
+    _dbus_import_ok = True
+except ImportError:
+    _dbus_module = None
+    _dbus_import_ok = False
+
+from models import load_config
 
 logger = logging.getLogger("yt-dl")
 
@@ -55,26 +63,33 @@ class NotificationManager:
         self._popup_shown = {}
         self._bus = None
         self._iface = None
-        self._init_dbus()
+        global _dbus_available
+        _dbus_available = False
 
     def _init_dbus(self):
-        global _dbus_available
+        if not _dbus_import_ok:
+            logger.info("dbus-python not installed — D-Bus disabled")
+            self._iface = None
+            return
         try:
-            self._bus = dbus.SessionBus()
+            self._bus = _dbus_module.SessionBus()
             obj = self._bus.get_object(
                 "org.freedesktop.Notifications",
                 "/org/freedesktop/Notifications"
             )
-            self._iface = dbus.Interface(obj, "org.freedesktop.Notifications")
-            self._bus.add_signal_receiver(
-                self._on_action,
-                "ActionInvoked",
-                "org.freedesktop.Notifications"
-            )
+            self._iface = _dbus_module.Interface(obj, "org.freedesktop.Notifications")
+            try:
+                self._bus.add_signal_receiver(
+                    self._on_action,
+                    "ActionInvoked",
+                    "org.freedesktop.Notifications"
+                )
+            except Exception as e:
+                logger.warning(f"D-Bus action signals not available: {e}")
             _dbus_available = True
             logger.info("D-Bus notifications initialized")
         except Exception as e:
-            logger.warning(f"D-Bus init failed: {e}")
+            logger.warning(f"D-Bus unavailable: {e}")
             self._iface = None
 
     def _on_action(self, notification_id, action_key):
@@ -93,24 +108,25 @@ class NotificationManager:
         elif action_key == "cancel" and _cancel_callback:
             _cancel_callback(job_id)
         elif action_key == "open_folder":
-            os.system('xdg-open "/mnt/storage/YouTube" &')
+            folder = load_config().get("download_dir", "/mnt/storage/YouTube")
+            os.system(f'xdg-open "{folder}" &')
         elif action_key == "dismiss":
             self.close(job_id)
 
     def _make_hints(self, job_id, state, progress=None):
-        hints = dbus.Dictionary({}, signature="sv")
-        hints["desktop-entry"] = dbus.String("yt-dl")
-        hints["category"] = dbus.String("transfer")
-        hints["urgency"] = dbus.Byte(2 if state == "failed" else 1)
+        hints = _dbus_module.Dictionary({}, signature="sv")
+        hints["desktop-entry"] = _dbus_module.String("yt-dl")
+        hints["category"] = _dbus_module.String("transfer")
+        hints["urgency"] = _dbus_module.Byte(2 if state == "failed" else 1)
         if state in ("downloading", "queued"):
-            hints["resident"] = dbus.Boolean(True)
-            hints["x-kde-persistence"] = dbus.Boolean(True)
+            hints["resident"] = _dbus_module.Boolean(True)
+            hints["x-kde-persistence"] = _dbus_module.Boolean(True)
         if state == "downloading" and progress is not None:
-            hints["value"] = dbus.Int32(int(progress))
+            hints["value"] = _dbus_module.Int32(int(progress))
         return hints
 
     def _make_actions(self, state):
-        actions = dbus.Array([], signature="s")
+        actions = _dbus_module.Array([], signature="s")
         if state == "failed":
             actions.extend(["retry", "Retry", "dismiss", "Dismiss"])
         elif state == "done":
@@ -125,14 +141,14 @@ class NotificationManager:
         if not self._iface:
             return None
         try:
-            replaces_id = dbus.UInt32(self._active.get(job_id, 0))
+            replaces_id = _dbus_module.UInt32(self._active.get(job_id, 0))
             icon = STATE_ICONS.get(state, APP_ICON)
             actions = self._make_actions(state)
             hints = self._make_hints(job_id, state, progress)
 
             nid = self._iface.Notify(
                 APP_NAME, replaces_id, icon, f"yt-dl: {title}", body,
-                actions, hints, dbus.Int32(timeout)
+                actions, hints, _dbus_module.Int32(timeout)
             )
             self._active[job_id] = int(nid)
             return int(nid)
@@ -143,7 +159,7 @@ class NotificationManager:
     def close(self, job_id):
         if job_id in self._active and self._iface:
             try:
-                self._iface.CloseNotification(dbus.UInt32(self._active[job_id]))
+                self._iface.CloseNotification(_dbus_module.UInt32(self._active[job_id]))
                 del self._active[job_id]
             except Exception:
                 pass
@@ -151,34 +167,19 @@ class NotificationManager:
     def show_queued(self, job_id, title, quality):
         if is_extension_alive():
             return
-        self._notify(job_id, "queued", title or "YouTube Video",
-                     f"Quality: {quality}\nQueued for download", timeout=3000)
 
     def update_downloading(self, job_id, title, quality, progress, speed, eta):
         if is_extension_alive():
             return
-        body = f"Quality: {quality}\n{speed or '0 KiB/s'} | ETA: {eta or 'Unknown'}"
-        if progress is not None:
-            body += f"\nProgress: {progress:.1f}%"
-        is_first = job_id not in self._active
-        timeout = 5000 if is_first else 0
-        self._notify(job_id, "downloading", title or "YouTube Video", body,
-                     progress=progress, timeout=timeout)
 
     def show_done(self, job_id, title, quality, file_path):
         if is_extension_alive():
             return
-        self._notify(job_id, "done", title or "YouTube Video",
-                     f"Quality: {quality}\nSaved to: {file_path or 'Unknown'}", timeout=5000)
 
     def show_failed(self, job_id, title, quality, error):
         if is_extension_alive():
             return
-        self._notify(job_id, "failed", title or "YouTube Video",
-                     f"Error: {error or 'Unknown error'}", timeout=0)
 
     def show_cancelled(self, job_id, title, quality):
         if is_extension_alive():
             return
-        self._notify(job_id, "cancelled", title or "YouTube Video",
-                     f"Quality: {quality}\nCancelled by user", timeout=3000)

@@ -28,6 +28,9 @@ DEFAULT_CONFIG = {
     "embed_thumbnail": True,
     "embed_chapters": True,
     "embed_subs": True,
+    "playlist_limit": 200,
+    "max_log_lines": 500,
+    "webhook_url": "",
 }
 
 QUALITY_MAP = {
@@ -40,7 +43,7 @@ QUALITY_MAP = {
     "1440p": "bestvideo[vcodec^=vp9][height<=1440]+bestaudio/best[height<=1440]",
     "2160p": "bestvideo[vcodec^=vp9][height<=2160]+bestaudio/best[height<=2160]",
     "best": "bestvideo[vcodec^=vp9]+bestaudio/best",
-    "audio": "bestaudio/best[audioonly]",
+    "audio": "bestaudio/best",
 }
 
 

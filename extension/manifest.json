@@ -8,6 +8,7 @@
     "storage",
     "contextMenus",
     "activeTab",
+    "scripting",
     "notifications",
     "alarms"
   ],

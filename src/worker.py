@@ -16,7 +16,8 @@ from datetime import datetime
 from models import get_db, job_to_dict, load_config, QUALITY_MAP, DATA_DIR
 
 COOKIES_PATH = DATA_DIR / "cookies.txt"
-from notifications import NotificationManager
+
+logger = logging.getLogger("yt-dl")
 
 
 def _fire_webhook(job):
@@ -43,20 +44,12 @@ def _fire_webhook(job):
     except Exception as e:
         logger.warning(f"Webhook error: {e}")
 
-logger = logging.getLogger("yt-dl")
-
 # Global state
 active_jobs = {}
 job_queue = []
 queue_lock = threading.Lock()
-notification_manager = None
 _queue_event = threading.Event()
 _worker_thread = None
-
-
-def set_notification_manager(nm):
-    global notification_manager
-    notification_manager = nm
 
 
 class DownloadJob:
@@ -165,8 +158,6 @@ def run_download(job, download_dir):
             info = json.loads(result.stdout.strip().split("\n")[0])
             job.title = info.get("title", "Unknown")[:80]
             save_job(job)
-            if notification_manager:
-                notification_manager.show_queued(job.job_id, job.title, job.quality)
     except Exception as e:
         logger.warning(f"Info extraction failed: {e}")
 
@@ -251,11 +242,6 @@ def run_download(job, download_dir):
                         save_job(job)
                         job.last_saved_progress = job.progress
                         job.last_update_time = now
-                        if notification_manager:
-                            notification_manager.update_downloading(
-                                job.job_id, job.title, job.quality,
-                                job.progress, job.speed, job.eta
-                            )
                 except Exception as e:
                     logger.debug(f"Progress parse error: {e}")
                 continue
@@ -310,12 +296,6 @@ def run_download(job, download_dir):
                 del active_jobs[job.job_id]
         save_job(job)
 
-        if notification_manager:
-            if job.status == "completed":
-                notification_manager.show_done(job.job_id, job.title, job.quality, job.file_path)
-            elif job.status == "failed":
-                notification_manager.show_failed(job.job_id, job.title, job.quality, job.error_message)
-
         _fire_webhook(job)
         process_queue()
 
@@ -336,8 +316,6 @@ def cancel_job(job_id: str) -> bool:
             job.status = "cancelled"
             del active_jobs[job_id]
             save_job(job)
-            if notification_manager:
-                notification_manager.show_cancelled(job.job_id, job.title, job.quality)
             return True
 
     db = get_db()

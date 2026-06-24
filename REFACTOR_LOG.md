@@ -492,3 +492,270 @@
 ### Verdict
 Project is **feature-complete for a v1.0**. What's listed above is polish/niche features, not blockers. The core loop (right-click → download → dashboard → notification) works end-to-end.
 
+---
+
+## Phase 14 — 9-Point Roadmap (Tier 1-3 Features)
+
+**Goal:** Move from personal tool to competitive self-hosted downloader with stability, ease of setup, and parity with MeTube/ytDownloader.
+
+**Files changed/created:** `src/updater.py`, `src/app.py`, `src/worker.py`, `src/models.py`, `Dockerfile`, `docker-compose.yml`, `.dockerignore`, `extension/popup.js`, `extension/popup.html`, `extension/manifest.json`, `extension/store/PUBLISH.md`, `src/templates/base.html`, `src/templates/settings.html`, `src/templates/logs.html`, `src/static/style.css`
+
+### 14a — Auto-update yt-dlp (Background)
+- **Created:** `src/updater.py`
+- **What:** Background daemon thread that runs `pip install --upgrade yt-dlp` on startup then every 24h
+- **Graceful:** Logs success/failure to ring log, no crash on failure, handles timeout and externally-managed-environment errors
+- **No UI:** Fully automatic — no buttons, no settings
+
+### 14b — Docker
+- **Created:** `Dockerfile`, `docker-compose.yml`, `.dockerignore`
+- **Base:** `python:3.14-slim` with ffmpeg, Flask, yt-dlp, dbus-python installed
+- **Volumes:** `yt-dl-data` for DB/config, bind mount for download directory
+- **Port:** 5000 mapped to host
+- **Env:** `YTDL_API_KEY` passed through for auth
+
+### 14c — Cookies Upload
+- **3 new endpoints:** `GET/POST/DELETE /api/settings/cookies`
+- **Settings card:** Upload button + status indicator + remove button
+- **Worker integration:** If `~/.local/share/yt-dl/cookies.txt` exists, appends `--cookies <path>` to yt-dlp command
+
+### 14d — Playlist Parsing
+- **Built into `api_add_job`:** Detects `list=` or `/playlist/` in URL
+- **Uses** `yt-dlp --flat-playlist --dump-json` to extract entries
+- **Dedup:** Checks completed downloads by video_id, skips existing
+- **Limit:** 50 videos max per playlist
+- **Returns** `{"status": "playlist", "title": ..., "total": N, "added": N, "skipped": N}`
+
+### 14e — API Key Auth
+- **Env var:** `YTDL_API_KEY`
+- **Decorator** `@require_auth` applied to all POST/PUT/DELETE routes via regex substitution in app.py
+- **`/api/info`** returns `auth_required: bool`
+- **UI warning:** Settings page shows banner if no API key set
+- **Header:** `Authorization: Bearer <key>`
+
+### 14f — Media Server Naming
+- **New config key:** `output_pattern` (default `%(title)s.%(ext)s`)
+- **Settings field:** Text input with example `%(channel)s/%(title)s.%(ext)s` for Plex/Jellyfin channel subdirectories
+- **Worker:** Reads `output_pattern` from `cfg` instead of hardcoded string
+
+### 14g — Extension Theme Sync
+- **Popup fetches** `GET /api/settings`, reads `theme` field
+- **Applies** `data-theme="light"` on `<html>` with CSS `:root` + `[data-theme="light"]` variable overrides
+- **Light vars:** `#ffffff` bg, `#f5f5f5` surface, `#1a1a1a` text, `#71717a` secondary
+- **Cache:** Stores theme in `chrome.storage.local` for instant load
+
+### 14h — Dashboard Connection Indicator
+- **Nav bar:** Green/red dot + "connected"/"disconnected" text
+- **Pings** `/api/info` on page load and every 15s
+- **Inline in base.html** — no separate JS file needed
+
+### 14i — Web Store Assets
+- **Created:** `extension/store/PUBLISH.md` with full submission guide
+- **Updated manifest.json:** Added `homepage_url`, `default_title`, richer description
+- **Guide includes:** Screenshot requirements, promo tile sizes, store listing copy, permissions justification, Firefox-specific manifest notes
+
+### Bugs Fixed During Phase 14
+- **Logging deadlock:** `RingBufferLogHandler` was a `logging.Handler` subclass but its `self.lock` overrode `Handler`'s internal lock → deadlock on first emit. Renamed to `self.buf_lock`.
+- **Flask access log noise:** Suppressed werkzeug logger to WARNING. Changed ring buffer from stdout/stderr redirect to proper `logging.Handler` attached to yt-dl logger.
+- **Log level mismatch:** CSS had `log-WARN`, `log-SUCCESS`, `log-PROGRESS` classes that never matched Python's standard levels (WARNING, INFO, DEBUG, ERROR, CRITICAL). Replaced with correct class names.
+
+## Phase 15 — Code Review Bug Fixes (June 24)
+
+**Goal:** Fix all issues found during full code review — Docker compat, install script, extension SW persistence, cross-env D-Bus safety, audio flags, config hygiene, webhook support.
+
+**Files changed:** `Dockerfile`, `src/notifications.py`, `src/worker.py`, `src/models.py`, `src/app.py`, `src/updater.py`, `install.sh`, `extension/background.js`, `extension/manifest.json`
+
+### 15a — Docker
+- `python:3.14-slim` → `python:3.12-slim` (3.14 tag didn't exist, build would fail immediately)
+- Removed `dbus-python` from pip install (not needed in Docker, was a dead dependency)
+- `pip install flask yt-dlp` — both packages available on PyPI
+- `ENV YTDL_BIND=0.0.0.0` so container binds on all interfaces
+
+### 15b — Guarded D-Bus Import
+- `notifications.py: import dbus` → `try: import dbus as _dbus_module` with `_dbus_import_ok` flag
+- Daemon no longer crashes on machines without `dbus-python` (including Docker)
+- Clean fallback: logs "dbus-python not installed — D-Bus disabled", sets `_iface = None`
+- All `dbus.XXX` calls replaced with `_dbus_module.XXX`
+
+### 15c — Hardcoded Path Fix
+- `_on_action` Open Folder used `os.system('xdg-open "/mnt/storage/YouTube" &')` — ignored user's configured `download_dir`
+- Fixed: reads `load_config()["download_dir"]` at runtime
+
+### 15d — Worker COOKIES_PATH Hygiene
+- `worker.py` hardcoded `Path.home() / ".local/share/yt-dl/cookies.txt"` — duplicated from `app.py`/`models.py`
+- Fixed: imports `DATA_DIR` from `models`, constructs `COOKIES_PATH = DATA_DIR / "cookies.txt"`
+
+### 15e — Audio Flag Conflict
+- `--merge-output-format mp4` and `--extract-audio` were both in the command unconditionally
+- yt-dlp doesn't like mixing these — can produce unexpected behavior for audio-only jobs
+- Fixed: `--merge-output-format mp4` only appended for non-audio jobs
+
+### 15f — Invalid yt-dlp Syntax
+- `QUALITY_MAP["audio"] = "bestaudio/best[audioonly]"` — `[audioonly]` is not a valid yt-dlp format filter
+- Fixed: `"bestaudio/best"`
+
+### 15g — Missing Config Keys
+- `DEFAULT_CONFIG` was missing `playlist_limit` and `max_log_lines` — both were hardcoded in `app.py`
+- Fixed: added `"playlist_limit": 200`, `"max_log_lines": 500`, `"webhook_url": ""`
+
+### 15h — functools.wraps
+- `@require_auth` manually set `wrapper.__name__ = f.__name__` instead of using decorator utils
+- Could cause Flask duplicate endpoint errors in edge cases
+- Fixed: `@functools.wraps(f)` — also added `import functools`
+
+### 15i — Playlist Limit from Config
+- Hardcoded `entries[:50]` in playlist handler
+- Fixed: reads `cfg.get("playlist_limit", 200)` from config
+
+### 15j — Configurable Host/Port
+- Host `127.0.0.1` and port `5000` were hardcoded at bottom of `app.py`
+- Incompatible with Docker (needs `0.0.0.0`)
+- Fixed: reads `YTDL_BIND` and `YTDL_PORT` env vars (defaults: `127.0.0.1`, `5000`)
+- Dockerfile sets `ENV YTDL_BIND=0.0.0.0`
+
+### 15k — pip → sys.executable
+- `updater.py` called bare `pip install` — targets system pip, not the venv/python running the app
+- Fixed: `[sys.executable, "-m", "pip", "install", ...]`
+
+### 15l — install.sh Syntax Error
+- Line 115: `cp "${SCRIPT_DIR}/extension/manifest.json "${EXT_DIR}/"` — missing closing `"` after `manifest.json`
+- Since `set -euo pipefail`, this kills the entire install before extension is copied
+- Fixed: `cp "${SCRIPT_DIR}/extension/manifest.json" "${EXT_DIR}/"`
+
+### 15m — Extension Service Worker Persistence
+- `setInterval` for heartbeat (30s) and poll (5s) is unreliable in MV3 — service worker gets evicted on inactivity (~30s)
+- Fixed: `chrome.alarms.create('heartbeat', { periodInMinutes: 0.5 })` and `chrome.alarms.create('poll', { periodInMinutes: 0.1 })` — survives eviction
+- Added `"alarms"` to `manifest.json` permissions
+- Removed `dbusAvailable` variable (always false server-side now), removed `startHeartbeat()`, `startPolling()` interval functions
+
+### 15n — Webhook Support (Bonus)
+- **New config key:** `webhook_url` in `DEFAULT_CONFIG` (empty string = disabled)
+- **New function:** `_fire_webhook(job)` in `worker.py` — fires `curl -X POST` with JSON payload on job completion/failure
+- **Payload:** `{event, job_id, title, quality, file_path, file_size, error}`
+- **Called in** `finally` block of `run_download()` — after notifications, before `process_queue()`
+- Differentiator: none of MeTube/TubeArchivist/Pinchflat support webhooks
+
+### Bugs Fixed During Phase 15
+- **Docker build failure:** `python:3.14-slim` doesn't exist on Docker Hub. Build failed immediately.
+- **Daemon crash on no dbus-python:** Unconditional `import dbus` crashed the daemon on plain Debian/Ubuntu/Docker. Fixed with guarded import.
+- **Open Folder ignored user config:** Always opened `/mnt/storage/YouTube` regardless of configured `download_dir`. Fixed.
+- **COOKIES_PATH duplication:** `worker.py` had independent path logic from `models.py`. Fixed.
+- **Audio quality syntax:** `best[audioonly]` is not valid yt-dlp, silently falls back to `best`. Fixed.
+- **Service worker eviction:** Extension notifications stopped after ~30s of inactivity. `setInterval` is unreliable in MV3. Fixed with `chrome.alarms`.
+- **Install.sh broken:** Missing quote killed extension copy on native install. Fixed.
+
+## Current Project Status (2026-06-24)
+
+### All Features Complete
+- Backend pipeline — worker.py (yt-dlp, JSON progress, process group kill, persistent thread)
+- Flask daemon — app.py (all routes, SSE, graceful shutdown, auth, YTDL_BIND/YTDL_PORT)
+- Notifications — Extension custom popup toasts only (D-Bus disabled, guarded import)
+- Dashboard — Card-based reactive UI, SSE-driven, filter tabs, bulk actions
+- Stats — Client-rendered bar chart, live polling
+- Logs — Real-time SSE with level filters
+- Extension — Context menu, quality popup, theme sync, connection status, alarms-based persistence
+- Playlist support — Auto-detect, individual jobs, dedup, configurable limit
+- Cookies support — Upload via Settings, passed to yt-dlp
+- Docker — python:3.12-slim, ffmpeg, YTDL_BIND env
+- Auto-update — Background yt-dlp updater (yt-dlp -U then sys.executable -m pip)
+- Auth — Optional YTDL_API_KEY, functools.wraps decorator
+- Media naming — Configurable output patterns
+- Webhook — POST on completion/failure, configurable URL
+- Installer — bash install.sh (multi-distro)
+- systemd — User service, auto-restart
+- Security — Shell injection fixed, log rotation, DB indexes
+- README — Professional documentation with MIT license
+
+### Bugs Fixed (2026-06-24)
+- **Notification race:** Extension `initNotificationSystem()` skipped polling entirely when D-Bus was available. User only got slow D-Bus notifications instead of extension popups. Fixed: extension now always polls and shows popups regardless of D-Bus status.
+- **D-Bus init crash:** `add_signal_receiver()` threw because it requires a GLib main loop. Entire D-Bus init failed, `_iface` stayed None, all Notify() calls silently skipped. Fixed: split init so basic Notify works without action signals.
+- **D-Bus disabled:** Turned off entirely per user preference. Extension is the only notification path now. (D-Bus code left in place for future re-enable.)
+- **Missing "started" transition:** Extension only tracked `downloading → completed/failed`. `queued → downloading` showed no notification. Fixed: added `started` notification type for download start.
+- **Popup window crash on null focus:** `chrome.windows.getLastFocused` callback's `win` can be null. Fixed: added fallback to `screen.availWidth/Height`.
+- **Worker filename capture with `/` in title:** Titles like "M/V" caused `Path.glob("*M/V*")` to interpret `/` as directory separator. Fixed: `.replace("/", "⧸")` in glob safe_title.
+- **Auto-updater on Arch:** `pip install` blocked by PEP 668. Fixed: try `yt-dlp -U` first, fallback to pip with `--break-system-packages`. Also: bare `pip` → `sys.executable -m pip` for correct venv targeting.
+- **Invalid URL accepted:** "not-a-url" created a job instead of returning 400. Fixed: added URL scheme validation.
+- **Docker build failure:** `python:3.14-slim` doesn't exist. Fixed: `3.12-slim`. Also removed `dbus-python` dependency.
+- **Daemon crash on no dbus-python:** Unconditional `import dbus` killed daemon on Docker/bare Ubuntu. Fixed: guarded import.
+- **Open Folder ignored user config:** Always opened hardcoded path. Fixed: reads from config at runtime.
+- **COOKIES_PATH duplication:** `worker.py` had independent path logic. Fixed: imports `DATA_DIR` from models.
+- **Audio flag conflict:** `--merge-output-format mp4` + `--extract-audio` both in command. Fixed: conditional.
+- **Invalid yt-dlp syntax:** `best[audioonly]` is not valid. Fixed: `bestaudio/best`.
+- **Extension SW eviction:** `setInterval` died on SW eviction, notifications stopped. Fixed: `chrome.alarms` API.
+- **Install script broken:** Missing `"` on manifest.json path. Fixed.
+
+### Known Limitations
+- **Pause/Resume:** Not supported (yt-dlp limitation)
+- **Web Store:** Guide provided but not yet submitted (requires $5 Chrome Web Store fee)
+- **Firefox:** Requires beta build with MV3 background.scripts support
+
+
+### Post-Phase 15 Cleanup — Settings UI, Version Bump, Docker Env
+
+**Issue:** `saveSettings()` only sent `download_dir`, `concurrent_limit`, `output_pattern`. The new fields `webhook_url`, `playlist_limit`, `default_quality`, `embed_*`, `theme` were never saved — users couldn't configure them at all.
+
+**Fix:** Rewrote the inline `saveSettings()` in `settings.html` to send every config key. Added input fields for `webhook_url` and `playlist_limit` to the settings page (they were missing from the HTML entirely). Added a Default Quality dropdown and Embed Options checkboxes section. The settings route now passes all config values as template variables so the form is pre-populated on load.
+
+**Additional fixes:**
+- Bumped `version` in `/api/info` from `1.0` → `1.1`
+- Added `YTDL_BIND=0.0.0.0` to `docker-compose.yml` environment
+- Removed dead `src/static/settings.js` (all logic moved inline into settings.html template)
+
+**Files changed:** `docker-compose.yml`, `src/templates/settings.html`, `src/app.py`, `src/static/settings.js` (dead code)
+
+---
+
+## Phase 16 — In-Page Toast Overlay + Dead Code Removal (June 24)
+
+**Goal:** Replace OS-level notification popups (`chrome.windows.create`) and native browser notifications (`chrome.notifications.create`) with an in-page toast that slides in from bottom-right inside whatever tab you're currently on.
+
+### 16a — `chrome.scripting.executeScript` Toast Injection
+
+- **Problem:** `chrome.windows.create` with `type: 'panel'` still gets KDE window decorations on Linux (title bar, borders). `chrome.notifications.create` shows as a Brave-branded OS notification. Neither feels like an app-integrated notification.
+- **Content script approach failed:** `content_scripts` in `manifest.json` only inject into newly-loaded pages, not already-open tabs. All existing tabs had no listener, so `chrome.tabs.sendMessage` always rejected, falling back to `chrome.notifications.create`.
+- **Solution:** Use `chrome.scripting.executeScript` with `func: injectToast` (serialized function + args) to inject a self-contained toast-builder into every open tab on-demand.
+- **How it works:**
+  1. `showNotification()` builds a `data` object (type, title, meta, thumb, jobId)
+  2. Queries tabs with `{ active: true, currentWindow: true }` (shows toast only on the tab you're looking at)
+  3. Calls `chrome.scripting.executeScript({ target: { tabId }, func: injectToast, args: [data] })`
+  4. `injectToast` runs inside the tab's isolated world:
+     - Creates `<style id="ytdl-toast-style">` with all CSS embedded (once per page)
+     - Creates/reuses `<div id="ytdl-toast-container">` fixed bottom-right
+     - Builds toast DOM: accent bar → thumbnail → app name → title → video title → meta row → retry button
+     - Animates in with `@keyframes ytdl-slide-in` (300ms, translateX + scale)
+     - Auto-dismisses after 3s (5s for failed) with `ytdl-slide-out` animation
+  5. If ALL tabs fail (chrome:// page, no tabs open), falls back to `chrome.notifications.create`
+
+### 16b — Immediate "Queued" Toast on Right-Click
+
+- Previously, the context menu handler queued the job but didn't show any visual feedback until the next poll cycle (6s later).
+- Now: on successful `POST /api/add`, injects an immediate "queued" toast on the right-clicked tab using the same `injectToast` function.
+- Single-video: shows "Added to Queue" with quality. Playlist: shows playlist title.
+- Extension now feels responsive instantly rather than waiting for polling.
+
+### 16c — Context Menu Enhancement
+
+- Added `'video'` and `'audio'` to `contexts` in `background.js` — right-clicking directly on embedded video players or audio elements now shows "Download with yt-dl", not just links.
+
+### 16d — `notifications.py` Complete Removal
+
+- **Context:** D-Bus was deliberately disabled (user preference). All `NotificationManager.show_*` methods returned immediately without calling `_notify`. The entire file was dead code.
+- **Deleted:** `src/notifications.py` (185 lines)
+- **Cleanup in `src/worker.py`:**
+  - Moved `logger = logging.getLogger("yt-dl")` above `_fire_webhook` (was previously after it — worked by accident since Python resolves names at call time)
+  - Removed `from notifications import NotificationManager`
+  - Removed `notification_manager` global variable
+  - Removed `set_notification_manager()` function
+  - Removed all `if notification_manager:` guards (4 blocks: show_queued, update_downloading, show_done/show_failed, show_cancelled)
+- **Cleanup in `src/app.py`:**
+  - Removed `NotificationManager, set_action_callbacks, set_extension_heartbeat, clear_extension_heartbeat, is_extension_alive, dbus_available` from imports
+  - Removed `nm = NotificationManager()` and `set_notification_manager(nm)` and `set_action_callbacks(...)`
+  - Removed `clear_extension_heartbeat()` from shutdown handler
+  - Hardcoded `"dbus_available": False` in `/api/info` response
+  - Stripped `set_extension_heartbeat()` / `clear_extension_heartbeat()` from extension endpoints (heartbeat/register/unregister) — they now just log and return `{"ok": True}`
+
+**Files changed:** `src/notifications.py` (deleted), `src/worker.py`, `src/app.py`, `extension/background.js`, `extension/manifest.json`, `extension/toast.css` (deleted), `extension/toast.js` (deleted)
+
+### Manifest Change
+
+- Removed `content_scripts` entry (no longer needed — toast is injected via `scripting.executeScript`)
+- Added `"scripting"` permission

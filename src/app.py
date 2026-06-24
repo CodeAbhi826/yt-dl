@@ -26,14 +26,9 @@ from models import (
     human_bytes, DEFAULT_CONFIG, QUALITY_MAP, DATA_DIR, DB_PATH, CONFIG_PATH
 )
 COOKIES_PATH = DATA_DIR / "cookies.txt"
-from notifications import (
-    NotificationManager, set_action_callbacks,
-    set_extension_heartbeat, clear_extension_heartbeat,
-    is_extension_alive, dbus_available
-)
 from worker import (
     process_queue, cancel_job, retry_job, active_jobs, pause_job, resume_job,
-    queue_lock, set_notification_manager
+    queue_lock
 )
 from updater import start_auto_updater
 
@@ -111,15 +106,9 @@ logger.addHandler(ring_log)
 werkzeug_log = logging.getLogger("werkzeug")
 werkzeug_log.setLevel(logging.WARNING)
 
-# Initialize notification manager
-nm = NotificationManager()
-set_notification_manager(nm)
-set_action_callbacks(retry_fn=retry_job, cancel_fn=cancel_job)
-
 
 def shutdown_handler(signum, frame):
     logger.info(f"Signal {signum} received, shutting down...")
-    clear_extension_heartbeat()
     with queue_lock:
         for job in active_jobs.values():
             if job.proc and job.proc.poll() is None:
@@ -165,7 +154,7 @@ def health():
 @app.route("/api/info")
 def api_info():
     return jsonify({
-        "dbus_available": dbus_available(),
+        "dbus_available": False,
         "version": "1.1",
         "auth_required": bool(API_KEY),
     })
@@ -173,20 +162,17 @@ def api_info():
 @app.route("/api/extension/heartbeat", methods=["POST"])
 @require_auth
 def api_extension_heartbeat():
-    set_extension_heartbeat()
     return jsonify({"ok": True})
 
 @app.route("/api/extension/register", methods=["POST"])
 @require_auth
 def api_extension_register():
-    set_extension_heartbeat()
     logger.info("Extension connected")
     return jsonify({"ok": True})
 
 @app.route("/api/extension/unregister", methods=["POST"])
 @require_auth
 def api_extension_unregister():
-    clear_extension_heartbeat()
     logger.info("Extension disconnected")
     return jsonify({"ok": True})
 

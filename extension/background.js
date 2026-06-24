@@ -143,6 +143,7 @@ function injectToast(data) {
         '.ytdl-toast-accent{width:4px;flex-shrink:0;border-radius:4px 0 0 4px}' +
         '.ytdl-toast--started .ytdl-toast-accent{background:#3ea6ff}' +
         '.ytdl-toast--completed .ytdl-toast-accent{background:#2ecc71}' +
+        '.ytdl-toast--queued .ytdl-toast-accent{background:#888}' +
         '.ytdl-toast--failed .ytdl-toast-accent{background:#f39c12}' +
         '.ytdl-toast-thumb{width:120px;height:68px;flex-shrink:0;margin:10px;border-radius:8px;overflow:hidden;align-self:center}' +
         '.ytdl-toast-thumb img{width:100%;height:100%;object-fit:cover;display:block}' +

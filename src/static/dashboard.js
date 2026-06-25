@@ -105,15 +105,14 @@ function buildFailedCard(j) {
   const thumb = j.video_id
     ? '<img src="https://i.ytimg.com/vi/' + escapeHtml(j.video_id) + '/mqdefault.jpg" class="q-thumb">'
     : '<div class="q-thumb-placeholder">YT</div>';
-  const errMsg = j.error_message || 'Unknown error';
-  const meta = [j.quality, 'mp4', errMsg, timeAgo(j.created_at)].filter(Boolean).join(' • ');
-  return '<div class="q-card failed" data-id="' + escapeHtml(j.id) + '">'
+  const meta = [j.quality, 'mp4', 'FAILED', timeAgo(j.created_at)].filter(Boolean).join(' • ');
+  return '<div class="q-card failed" data-id="' + escapeHtml(j.id) + '" style="cursor:pointer" onclick="window.location.href=\'/logs\'">'
     + '<div class="q-thumb-wrap">' + thumb + '</div>'
     + '<div class="q-body">'
     + '<div><div class="q-title" title="' + escapeHtml(j.title || '') + '">' + escapeHtml(j.title || j.video_id || 'Unknown') + '</div>'
     + '<div style="margin-top:2px;"><span class="q-status">✕ FAILED</span></div></div>'
     + '<div class="q-meta">' + escapeHtml(meta) + '</div>'
-    + '<div class="q-bottom" style="justify-content:flex-end;"><span class="q-retry" onclick="retryJob(\'' + escapeHtml(j.id) + '\')">Retry</span></div>'
+    + '<div class="q-bottom" style="justify-content:flex-end;"><span class="q-retry" onclick="event.stopPropagation();retryJob(\'' + escapeHtml(j.id) + '\')">Retry</span></div>'
     + '</div></div>';
 }
 

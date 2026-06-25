@@ -15,7 +15,8 @@
   "host_permissions": [
     "http://127.0.0.1:5000/*",
     "*://*.youtube.com/*",
-    "*://youtu.be/*"
+    "*://youtu.be/*",
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "background.js"

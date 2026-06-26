@@ -339,9 +339,15 @@ def pause_job(job_id: str) -> bool:
         if job_id in active_jobs:
             job = active_jobs[job_id]
             if job.proc and job.proc.poll() is None:
-                os.killpg(os.getpgid(job.proc.pid), signal.SIGSTOP)
-                logger.info(f"Paused job: {job_id}")
-                return True
+                try:
+                    os.killpg(os.getpgid(job.proc.pid), signal.SIGSTOP)
+                    job.status = "paused"
+                    save_job(job)
+                    logger.info(f"Paused job: {job_id}")
+                    return True
+                except (ProcessLookupError, PermissionError) as e:
+                    logger.warning(f"Failed to pause {job_id}: {e}")
+                    return False
     return False
 
 
@@ -350,9 +356,15 @@ def resume_job(job_id: str) -> bool:
         if job_id in active_jobs:
             job = active_jobs[job_id]
             if job.proc and job.proc.poll() is None:
-                os.killpg(os.getpgid(job.proc.pid), signal.SIGCONT)
-                logger.info(f"Resumed job: {job_id}")
-                return True
+                try:
+                    os.killpg(os.getpgid(job.proc.pid), signal.SIGCONT)
+                    job.status = "downloading"
+                    save_job(job)
+                    logger.info(f"Resumed job: {job_id}")
+                    return True
+                except (ProcessLookupError, PermissionError) as e:
+                    logger.warning(f"Failed to resume {job_id}: {e}")
+                    return False
     return False
 
 

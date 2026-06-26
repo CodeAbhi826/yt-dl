@@ -105,15 +105,37 @@ function buildFailedCard(j) {
   const thumb = j.video_id
     ? '<img src="https://i.ytimg.com/vi/' + escapeHtml(j.video_id) + '/mqdefault.jpg" class="q-thumb">'
     : '<div class="q-thumb-placeholder">YT</div>';
-  const meta = [j.quality, 'mp4', 'FAILED', timeAgo(j.created_at)].filter(Boolean).join(' • ');
-  return '<div class="q-card failed" data-id="' + escapeHtml(j.id) + '" style="cursor:pointer" onclick="window.location.href=\'/logs\'">'
+  const errMsg = j.error_message || 'Unknown error';
+  const meta = [j.quality, 'mp4', errMsg, timeAgo(j.created_at)].filter(Boolean).join(' • ');
+  return '<div class="q-card failed" data-id="' + escapeHtml(j.id) + '">'
     + '<div class="q-thumb-wrap">' + thumb + '</div>'
     + '<div class="q-body">'
     + '<div><div class="q-title" title="' + escapeHtml(j.title || '') + '">' + escapeHtml(j.title || j.video_id || 'Unknown') + '</div>'
     + '<div style="margin-top:2px;"><span class="q-status">✕ FAILED</span></div></div>'
     + '<div class="q-meta">' + escapeHtml(meta) + '</div>'
-    + '<div class="q-bottom" style="justify-content:flex-end;"><span class="q-retry" onclick="event.stopPropagation();retryJob(\'' + escapeHtml(j.id) + '\')">Retry</span></div>'
+    + '<div class="q-bottom" style="justify-content:flex-end;"><span class="q-retry" onclick="retryJob(\'' + escapeHtml(j.id) + '\')">Retry</span></div>'
     + '</div></div>';
+}
+
+function buildPausedCard(j) {
+  const thumb = j.video_id
+    ? '<img src="https://i.ytimg.com/vi/' + escapeHtml(j.video_id) + '/mqdefault.jpg" class="dl-thumb">'
+    : '<div class="dl-thumb-placeholder">YT</div>';
+  const pct = j.progress || 0;
+  return '<div class="dl-card" data-id="' + escapeHtml(j.id) + '" style="opacity:0.6">'
+    + '<div class="dl-thumb-wrap">' + thumb + '</div>'
+    + '<div class="dl-body">'
+    + '<div><div class="dl-title" title="' + escapeHtml(j.title || '') + '">' + escapeHtml(j.title || j.video_id || 'Unknown') + '</div>'
+    + '<div class="dl-meta"><span class="dl-chip">⏸ Paused</span><span class="dl-chip">' + pct.toFixed(1) + '%</span></div></div>'
+    + '<div><div class="dl-progress"><div class="dl-progress-bar"><div class="dl-progress-fill" style="width:' + pct + '%"></div></div></div>'
+    + '<div class="dl-stats"><span>Paused at ' + pct.toFixed(1) + '%</span><span class="dl-cancel" onclick="resumeJob(\'' + escapeHtml(j.id) + '\')">Resume</span></div></div>'
+    + '</div></div>';
+}
+
+function resumeJob(id) {
+  fetch("/api/jobs/" + id + "/resume", {method:"POST"})
+    .then(r => r.json())
+    .then(d => { showToast("Resumed"); });
 }
 
 function buildSection(label, gridClass, cardsHtml) {
@@ -134,6 +156,7 @@ function renderDashboard(jobs) {
   }
 
   const downloading = jobs.filter(j => j.status === 'downloading');
+  const paused = jobs.filter(j => j.status === 'paused');
   const queued = jobs.filter(j => j.status === 'queued');
   const failed = jobs.filter(j => j.status === 'failed');
   const completed = jobs.filter(j => j.status === 'completed').slice(0, 6);
@@ -142,6 +165,9 @@ function renderDashboard(jobs) {
 
   if (downloading.length) {
     html += buildSection('DOWNLOADING', 'grid-2', downloading.map(buildDownloadingCard).join(''));
+  }
+  if (paused.length) {
+    html += buildSection('PAUSED', 'grid-2', paused.map(buildPausedCard).join(''));
   }
   if (queued.length) {
     html += buildSection('QUEUED', 'grid-3', queued.map((j, i) => buildQueueCard(j, i + 1)).join(''));
@@ -160,8 +186,23 @@ function renderDashboard(jobs) {
 function updateFooter(jobs) {
   const active = jobs.filter(j => j.status === 'downloading').length;
   const queued = jobs.filter(j => j.status === 'queued').length;
+  const paused = jobs.filter(j => j.status === 'paused').length;
   const left = document.getElementById("footer-left");
-  if (left) left.textContent = '⬇ ' + active + ' active • ' + queued + ' queued';
+  if (left) left.textContent = '⬇ ' + active + ' active • ' + queued + ' queued' + (paused ? ' • ' + paused + ' paused' : '');
+
+  const pauseBtn = document.getElementById("pause-all");
+  if (pauseBtn) {
+    if (active > 0) {
+      pauseBtn.textContent = 'Pause all';
+      pauseBtn.classList.add('footer-action-danger');
+    } else if (paused > 0) {
+      pauseBtn.textContent = 'Resume all';
+      pauseBtn.classList.remove('footer-action-danger');
+    } else {
+      pauseBtn.textContent = 'Pause all';
+      pauseBtn.classList.add('footer-action-danger');
+    }
+  }
 }
 
 function retryJob(id) {
@@ -193,9 +234,21 @@ document.addEventListener("DOMContentLoaded", function() {
   if (pauseBtn) {
     pauseBtn.addEventListener("click", function() {
       const dl = prevJobs.filter(j => j.status === 'downloading');
-      if (!dl.length) return;
-      dl.forEach(j => cancelJob(j.id));
-      showToast("Cancelled " + dl.length + " active");
+      const paused = prevJobs.filter(j => j.status === 'paused');
+
+      if (dl.length > 0) {
+        if (!confirm("Pause " + dl.length + " active download(s)?")) return;
+        fetch("/api/jobs/pause-all", {method:"POST"})
+          .then(r => r.json())
+          .then(d => showToast("Paused " + d.paused + " jobs"))
+          .catch(() => showToast("Pause failed", "error"));
+      } else if (paused.length > 0) {
+        if (!confirm("Resume " + paused.length + " paused download(s)?")) return;
+        fetch("/api/jobs/resume-all", {method:"POST"})
+          .then(r => r.json())
+          .then(d => showToast("Resumed " + d.resumed + " jobs"))
+          .catch(() => showToast("Resume failed", "error"));
+      }
     });
   }
 });

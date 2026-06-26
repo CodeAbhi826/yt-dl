@@ -199,6 +199,44 @@ def api_cancel_job(job_id):
         return jsonify({"ok": True})
     return jsonify({"ok": False, "error": "Job not found"}), 404
 
+@app.route("/api/jobs/<job_id>/pause", methods=["POST"])
+@require_auth
+def api_pause_job(job_id):
+    if pause_job(job_id):
+        logger.info(f"Job paused: {job_id}")
+        return jsonify({"ok": True})
+    return jsonify({"ok": False, "error": "Job not active"}), 404
+
+@app.route("/api/jobs/<job_id>/resume", methods=["POST"])
+@require_auth
+def api_resume_job(job_id):
+    if resume_job(job_id):
+        logger.info(f"Job resumed: {job_id}")
+        return jsonify({"ok": True})
+    return jsonify({"ok": False, "error": "Job not paused"}), 404
+
+@app.route("/api/jobs/pause-all", methods=["POST"])
+@require_auth
+def api_pause_all():
+    paused = 0
+    with queue_lock:
+        for job in list(active_jobs.values()):
+            if job.status == "downloading" and pause_job(job.job_id):
+                paused += 1
+    logger.info(f"Paused {paused} jobs")
+    return jsonify({"paused": paused})
+
+@app.route("/api/jobs/resume-all", methods=["POST"])
+@require_auth
+def api_resume_all():
+    resumed = 0
+    with queue_lock:
+        for job in list(active_jobs.values()):
+            if resume_job(job.job_id):
+                resumed += 1
+    logger.info(f"Resumed {resumed} jobs")
+    return jsonify({"resumed": resumed})
+
 @app.route("/api/jobs/<job_id>", methods=["DELETE"])
 @require_auth
 def api_delete_job(job_id):

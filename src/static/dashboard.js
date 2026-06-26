@@ -113,7 +113,7 @@ function buildFailedCard(j) {
     + '<div><div class="q-title" title="' + escapeHtml(j.title || '') + '">' + escapeHtml(j.title || j.video_id || 'Unknown') + '</div>'
     + '<div style="margin-top:2px;"><span class="q-status">✕ FAILED</span></div></div>'
     + '<div class="q-meta">' + escapeHtml(meta) + '</div>'
-    + '<div class="q-bottom" style="justify-content:flex-end;"><span class="q-retry" onclick="retryJob(\'' + escapeHtml(j.id) + '\')">Retry</span></div>'
+    + '<div class="q-bottom" style="justify-content:space-between;"><span class="q-retry" onclick="retryJob(\'' + escapeHtml(j.id) + '\')">Retry</span><span class="q-cancel" onclick="window.location.href=\'/logs\'">View logs →</span></div>'
     + '</div></div>';
 }
 
@@ -145,9 +145,25 @@ function buildSection(label, gridClass, cardsHtml) {
 }
 
 let prevJobs = [];
+let currentOffset = 0;
+const PAGE_SIZE = 200;
+
+async function loadMore() {
+  currentOffset += PAGE_SIZE;
+  const r = await fetch(`/api/queue?limit=${PAGE_SIZE}&offset=${currentOffset}`);
+  const olderJobs = await r.json();
+  if (olderJobs.length === 0) {
+    document.getElementById("load-more").style.display = "none";
+    return;
+  }
+  prevJobs = prevJobs.concat(olderJobs);
+  renderDashboard(prevJobs);
+}
 
 function renderDashboard(jobs) {
   prevJobs = jobs;
+  const loadMoreBtn = document.getElementById("load-more");
+  if (loadMoreBtn) loadMoreBtn.style.display = jobs.length >= PAGE_SIZE ? "" : "none";
   const sections = document.getElementById("sections");
   if (!jobs.length) {
     sections.innerHTML = '<div class="section" style="text-align:center;padding:80px 0;color:var(--text-muted);"><p style="font-size:16px;font-weight:600;color:var(--text);">No downloads</p><p style="margin-top:8px;">Add videos using the Brave extension.</p></div>';

@@ -49,4 +49,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       await chrome.storage.local.set({ defaultQuality: btn.dataset.q });
     });
   });
+
+  const { apiKey } = await chrome.storage.local.get('apiKey');
+  const keyInput = document.getElementById('apiKey');
+  if (keyInput) {
+    if (apiKey) keyInput.value = apiKey;
+    keyInput.addEventListener('input', async () => {
+      await chrome.storage.local.set({ apiKey: keyInput.value });
+    });
+  }
 });

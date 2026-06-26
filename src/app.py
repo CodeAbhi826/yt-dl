@@ -5,6 +5,9 @@ import os
 import sys
 import json
 import time
+import uuid
+import hmac
+import hashlib
 import sqlite3
 import threading
 import queue
@@ -12,9 +15,10 @@ import subprocess
 import logging
 import functools
 from logging.handlers import RotatingFileHandler
+from contextlib import closing
 import re
 import signal
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from flask import Flask, request, jsonify, render_template, Response, stream_with_context
@@ -31,6 +35,7 @@ from worker import (
     queue_lock
 )
 from updater import start_auto_updater
+from _version import __version__
 
 # Logging setup
 LOG_PATH = DATA_DIR / "daemon.log"
@@ -134,7 +139,8 @@ def require_auth(f):
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
         auth = request.headers.get("Authorization", "")
-        if auth != f"Bearer {API_KEY}":
+        expected = f"Bearer {API_KEY}"
+        if not hmac.compare_digest(auth, expected):
             return jsonify({"error": "Unauthorized"}), 401
         return f(*args, **kwargs)
     wrapper.__name__ = f.__name__
@@ -149,13 +155,13 @@ app = Flask(__name__,
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok", "time": datetime.now().isoformat()})
+    return jsonify({"status": "ok", "time": datetime.now(timezone.utc).isoformat()})
 
 @app.route("/api/info")
 def api_info():
     return jsonify({
         "dbus_available": False,
-        "version": "1.1",
+        "version": __version__,
         "auth_required": bool(API_KEY),
     })
 
@@ -178,8 +184,13 @@ def api_extension_unregister():
 
 @app.route("/api/queue")
 def api_queue():
+    try:
+        limit = max(1, min(int(request.args.get("limit", 200)), 1000))
+        offset = max(0, int(request.args.get("offset", 0)))
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid pagination params"}), 400
     db = get_db()
-    rows = db.execute("SELECT * FROM downloads ORDER BY created_at DESC LIMIT 200").fetchall()
+    rows = db.execute("SELECT * FROM downloads ORDER BY created_at DESC LIMIT ? OFFSET ?", (limit, offset)).fetchall()
     db.close()
     return jsonify([job_to_dict(r) for r in rows])
 
@@ -288,10 +299,15 @@ def api_get_job(job_id):
 def api_open_path():
     data = request.get_json() or {}
     path = data.get("path", "")
-    if not path or not os.path.isdir(path):
+    cfg = load_config()
+    download_dir = os.path.realpath(cfg.get("download_dir", ""))
+    real_path = os.path.realpath(path)
+    if not real_path.startswith(download_dir + os.sep) and real_path != download_dir:
+        return jsonify({"error": "Path outside download directory"}), 403
+    if not os.path.isdir(real_path):
         return jsonify({"error": "Invalid path"}), 400
     try:
-        subprocess.Popen(["xdg-open", path])
+        subprocess.Popen(["xdg-open", real_path])
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -305,24 +321,64 @@ def api_bulk_retry():
         return jsonify({"retried": 0})
     db = get_db()
     placeholders = ",".join("?" * len(ids))
-    db.execute(f"UPDATE downloads SET status='queued', progress=0, error_message=NULL, retry_count=retry_count+1 WHERE job_id IN ({placeholders})", tuple(ids))
+    c = db.execute(
+        f"UPDATE downloads SET status='queued', progress=0, error_message=NULL, retry_count=retry_count+1 "
+        f"WHERE job_id IN ({placeholders}) AND status IN ('failed', 'cancelled')",
+        tuple(ids)
+    )
     db.commit()
     db.close()
-    threading.Thread(target=process_queue, daemon=True).start()
-    return jsonify({"retried": len(ids)})
+    if c.rowcount > 0:
+        process_queue()
+    return jsonify({"retried": c.rowcount})
 
 @app.route("/api/settings", methods=["GET"])
 def api_get_settings():
     return jsonify(load_config())
+
+ALLOWED_SETTINGS = {
+    "download_dir": str,
+    "default_quality": str,
+    "concurrent_limit": int,
+    "theme": str,
+    "output_pattern": str,
+    "embed_metadata": bool,
+    "embed_thumbnail": bool,
+    "embed_chapters": bool,
+    "embed_subs": bool,
+    "playlist_limit": int,
+    "max_log_lines": int,
+    "webhook_url": str,
+}
+
+VALID_QUALITIES = {"144p","240p","360p","480p","720p","1080p","1440p","2160p","best","audio"}
 
 @app.route("/api/settings", methods=["PUT"])
 @require_auth
 def api_update_settings():
     cfg = load_config()
     updates = request.get_json() or {}
-    cfg.update(updates)
+    for key, value in updates.items():
+        if key not in ALLOWED_SETTINGS:
+            continue
+        expected = ALLOWED_SETTINGS[key]
+        if not isinstance(value, expected):
+            return jsonify({"error": f"Invalid type for {key}: expected {expected.__name__}"}), 400
+        if key == "concurrent_limit" and not (1 <= value <= 20):
+            return jsonify({"error": "concurrent_limit must be 1-20"}), 400
+        if key == "playlist_limit" and not (1 <= value <= 1000):
+            return jsonify({"error": "playlist_limit must be 1-1000"}), 400
+        if key == "default_quality" and value not in VALID_QUALITIES:
+            return jsonify({"error": "Invalid quality"}), 400
+        if key == "theme" and value not in ("dark", "light"):
+            return jsonify({"error": "theme must be 'dark' or 'light'"}), 400
+        cfg[key] = value
     save_config(cfg)
-    if "max_log_lines" in updates:
+    if "max_log_lines" in updates and isinstance(cfg["max_log_lines"], int) and cfg["max_log_lines"] > 0:
+        with ring_log.buf_lock:
+            new_buffer = deque(maxlen=cfg["max_log_lines"])
+            new_buffer.extend(ring_log.buffer)
+            ring_log.buffer = new_buffer
         ring_log.max_lines = cfg["max_log_lines"]
     return jsonify(cfg)
 
@@ -347,7 +403,7 @@ def api_upload_cookies():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     f.save(str(COOKIES_PATH))
     logger.info("Cookies file uploaded")
-    return jsonify({"ok": True, "path": str(COOKIES_PATH)})
+    return jsonify({"ok": True})
 
 @app.route("/api/settings/cookies", methods=["DELETE"])
 @require_auth
@@ -368,16 +424,29 @@ def api_stats():
     total_bytes = db.execute("SELECT COALESCE(SUM(file_size), 0) as s FROM downloads WHERE status='completed'").fetchone()["s"]
     db.close()
 
-    max_cnt = max([r["cnt"] for r in daily] + [1])
-    daily_bars = [{"label": r["day"][5:], "pct": int(r["cnt"] / max_cnt * 100), "count": r["cnt"]} for r in daily]
-    while len(daily_bars) < 7:
-        daily_bars.insert(0, {"label": "", "pct": 0, "count": 0})
+    today = datetime.now(timezone.utc).date()
+    day_map = {r["day"]: r["cnt"] for r in daily}
+    daily_bars = []
+    for i in range(6, -1, -1):
+        day = today - timedelta(days=i)
+        day_str = day.isoformat()
+        cnt = day_map.get(day_str, 0)
+        daily_bars.append({
+            "label": day_str[5:],
+            "pct": int(cnt / max(max(day_map.values(), default=1), 1) * 100),
+            "count": cnt
+        })
 
     success_rate = round(success / total * 100, 1) if total > 0 else 0
+    cancelled = db.execute("SELECT COUNT(*) as c FROM downloads WHERE status='cancelled'").fetchone()["c"]
+    active = db.execute("SELECT COUNT(*) as c FROM downloads WHERE status IN ('queued','downloading')").fetchone()["c"]
+    other = total - success - failed - cancelled - active
     status_breakdown = [
         {"label": "Completed", "count": success, "color": "#22c55e", "pct": round(success/total*100,1) if total else 0},
         {"label": "Failed", "count": failed, "color": "#dc2626", "pct": round(failed/total*100,1) if total else 0},
-        {"label": "Other", "count": total - success - failed, "color": "#666666", "pct": round((total-success-failed)/total*100,1) if total else 0},
+        {"label": "Cancelled", "count": cancelled, "color": "#f59e0b", "pct": round(cancelled/total*100,1) if total else 0},
+        {"label": "Active/Queued", "count": active, "color": "#3ea6ff", "pct": round(active/total*100,1) if total else 0},
+        {"label": "Other", "count": other, "color": "#666666", "pct": round(other/total*100,1) if total else 0},
     ]
 
     return jsonify({
@@ -406,7 +475,11 @@ def api_reset_stats():
 @app.route("/api/logs")
 def api_logs():
     level = request.args.get("level", "ALL")
-    count = int(request.args.get("count", 100))
+    try:
+        count = int(request.args.get("count", 100))
+        count = max(1, min(count, 1000))
+    except (ValueError, TypeError):
+        return jsonify({"error": "count must be an integer"}), 400
     return jsonify(ring_log.get_lines(count=count, level_filter=level))
 
 @app.route("/api/logs/stream")
@@ -460,7 +533,8 @@ def api_search():
 def api_add_job():
     data = request.get_json() or {}
     url = data.get("url", "").strip()
-    quality = data.get("quality", load_config().get("default_quality", "720p"))
+    cfg = load_config()
+    quality = data.get("quality", cfg.get("default_quality", "720p"))
     if not url:
         return jsonify({"error": "No URL provided"}), 400
 
@@ -472,13 +546,16 @@ def api_add_job():
     if m:
         video_id = m.group(1)
 
+    url_hash = hashlib.sha256(url.encode()).hexdigest()[:12]
+
     # Check if this is a playlist
     is_playlist = "list=" in url or "/playlist/" in url
     if is_playlist:
         try:
             result = subprocess.run(
-                ["yt-dlp", "--flat-playlist", "--dump-json", "--no-download", url],
-                capture_output=True, text=True, timeout=30
+                ["yt-dlp", "--flat-playlist", "--dump-json", "--no-download",
+                 "--playlist-end", "50", url],
+                capture_output=True, text=True, timeout=10
             )
             if result.returncode == 0 and result.stdout.strip():
                 entries = [json.loads(line) for line in result.stdout.strip().split("\n") if line.strip()]
@@ -486,30 +563,24 @@ def api_add_job():
                 logger.info(f"Playlist detected: \"{playlist_title}\" ({len(entries)} videos)")
 
                 db = get_db()
-                # Get already-downloaded video IDs to skip
-                downloaded = set()
-                if entries:
-                    eids = [e.get("id") for e in entries if e.get("id")]
-                    if eids:
-                        placeholders = ",".join("?" * len(eids))
-                        rows = db.execute(
-                            f"SELECT DISTINCT video_id FROM downloads WHERE video_id IN ({placeholders}) AND status='completed'",
-                            tuple(eids)
-                        ).fetchall()
-                        downloaded = {r["video_id"] for r in rows}
+                existing_urls = {r["url"] for r in db.execute("SELECT DISTINCT url FROM downloads WHERE status='completed'").fetchall()}
 
                 count = 0
-                cfg = load_config()
-                playlist_limit = cfg.get("playlist_limit", 200)
-                for entry in entries[:playlist_limit]:
+                for entry in entries[:cfg.get("playlist_limit", 200)]:
                     eid = entry.get("id")
                     if not eid:
                         continue
-                    if eid in downloaded:
+                    eurl = entry.get("url") or entry.get("webpage_url") or entry.get("original_url")
+                    if not eurl:
+                        if entry.get("ie_key") == "Youtube" or "youtube" in (entry.get("extractor_key", "") or "").lower():
+                            eurl = f"https://www.youtube.com/watch?v={eid}"
+                        else:
+                            logger.warning(f"Skipping playlist entry with no URL: {entry}")
+                            continue
+                    if eurl in existing_urls:
                         continue
                     etitle = (entry.get("title") or "Unknown")[:80]
-                    eurl = f"https://www.youtube.com/watch?v={eid}"
-                    ejob_id = f"job_{int(time.time() * 1000)}_{eid}"
+                    ejob_id = f"job_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
                     db.execute(
                         "INSERT INTO downloads (job_id, video_id, url, quality, status, title) VALUES (?, ?, ?, ?, 'queued', ?)",
                         (ejob_id, eid, eurl, quality, etitle)
@@ -519,7 +590,7 @@ def api_add_job():
                 db.commit()
                 db.close()
                 logger.info(f"Playlist queued: {count} new videos (skipped {len(entries) - count} existing)")
-                threading.Thread(target=process_queue, daemon=True).start()
+                process_queue()
                 return jsonify({"status": "playlist", "title": playlist_title, "total": len(entries), "added": count, "skipped": len(entries) - count})
 
         except subprocess.TimeoutExpired:
@@ -527,7 +598,7 @@ def api_add_job():
         except Exception as e:
             logger.warning(f"Playlist detection failed: {e}")
 
-    job_id = f"job_{int(time.time() * 1000)}_{video_id or 'unknown'}"
+    job_id = f"job_{int(time.time() * 1000)}_{url_hash}"
     title = data.get("title", "")
     db = get_db()
     db.execute("INSERT INTO downloads (job_id, video_id, url, quality, status, title) VALUES (?, ?, ?, ?, 'queued', ?)",
@@ -537,7 +608,7 @@ def api_add_job():
 
     logger.info(f"Download added [{quality}] {title or video_id or url}")
 
-    threading.Thread(target=process_queue, daemon=True).start()
+    process_queue()
 
     return jsonify({"job_id": job_id, "status": "queued"})
 
@@ -574,28 +645,71 @@ def logs_page():
     cfg = load_config()
     return render_template("logs.html", active="logs", theme=cfg.get("theme", "dark"))
 
-# ── SSE: Queue Stream ─────────────────────────────────────────────
+# ── SSE: Queue Stream (single-poller broadcaster) ────────────────
+
+class QueueBroadcaster:
+    def __init__(self):
+        self.subscribers = []
+        self.sub_lock = threading.Lock()
+        self._last_hash = ""
+        self._last_data = "[]"
+
+    def start(self):
+        threading.Thread(target=self._poll_loop, daemon=True, name="queue-broadcast").start()
+
+    def _poll_loop(self):
+        while True:
+            try:
+                with closing(get_db()) as db:
+                    rows = db.execute("SELECT * FROM downloads ORDER BY created_at DESC LIMIT 200").fetchall()
+                data = json.dumps([job_to_dict(r) for r in rows])
+                h = hashlib.md5(data.encode()).hexdigest()
+                if h != self._last_hash:
+                    self._last_hash = h
+                    self._last_data = data
+                    self._broadcast(data)
+            except Exception as e:
+                logger.error(f"Queue broadcast error: {e}")
+            time.sleep(1)
+
+    def _broadcast(self, data):
+        with self.sub_lock:
+            dead = []
+            for q in self.subscribers:
+                try:
+                    q.put(data, block=False)
+                except:
+                    dead.append(q)
+            for q in dead:
+                if q in self.subscribers:
+                    self.subscribers.remove(q)
+
+    def subscribe(self):
+        q = queue.Queue(maxsize=10)
+        with self.sub_lock:
+            self.subscribers.append(q)
+        return q
+
+    def unsubscribe(self, q):
+        with self.sub_lock:
+            if q in self.subscribers:
+                self.subscribers.remove(q)
+
+queue_broadcaster = QueueBroadcaster()
 
 @app.route("/api/queue/stream")
 def stream_queue():
     def event_stream():
-        last_hash = ""
-        while True:
-            try:
-                db = get_db()
-                rows = db.execute("SELECT * FROM downloads ORDER BY created_at DESC LIMIT 200").fetchall()
-                db.close()
-                data = json.dumps([job_to_dict(r) for r in rows])
-                current_hash = str(hash(data))
-                if current_hash != last_hash:
-                    yield "data: " + data + "\n\n"
-                    last_hash = current_hash
-                else:
-                    yield ": unchanged\n\n"
-            except Exception as e:
-                logger.error(f"SSE error: {e}")
-                yield ": error\n\n"
-            time.sleep(1)
+        q = queue_broadcaster.subscribe()
+        try:
+            yield "data: " + queue_broadcaster._last_data + "\n\n"
+            while True:
+                data = q.get(timeout=30)
+                yield "data: " + data + "\n\n"
+        except:
+            pass
+        finally:
+            queue_broadcaster.unsubscribe(q)
     return Response(
         stream_with_context(event_stream()),
         mimetype="text/event-stream",
@@ -625,9 +739,10 @@ if __name__ == "__main__":
     cfg = load_config()
     ring_log.max_lines = cfg.get("max_log_lines", 500)
     start_auto_updater()
+    queue_broadcaster.start()
     host = os.environ.get("YTDL_BIND", "127.0.0.1")
     port = int(os.environ.get("YTDL_PORT", 5000))
-    logger.info(f"yt-dl v1.0 started — http://{host}:{port}")
+    logger.info(f"yt-dl v{__version__} started — http://{host}:{port}")
     logger.info(f"Downloads directory: {cfg.get('download_dir', '/mnt/storage/YouTube')}")
     logger.info(f"Concurrent downloads: {cfg.get('concurrent_limit', 3)}")
     logger.info("Notifications handled by browser extension")

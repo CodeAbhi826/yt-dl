@@ -152,12 +152,15 @@ def job_to_dict(row) -> dict:
     }
 
 
-def human_bytes(b: int) -> str:
+def human_bytes(b) -> str:
     """Convert bytes to human readable string."""
-    if b == 0:
+    if b is None or b == 0:
         return "0.0 B"
+    b = float(b)
+    if b < 0:
+        return "-" + human_bytes(-b)
     for unit in ["B", "KB", "MB", "GB", "TB"]:
-        if abs(b) < 1024:
+        if b < 1024:
             return f"{b:.1f} {unit}"
         b /= 1024
     return f"{b:.1f} PB"

@@ -11,7 +11,7 @@ import subprocess
 import threading
 import logging
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 from models import get_db, job_to_dict, load_config, QUALITY_MAP, DATA_DIR
 
@@ -20,7 +20,12 @@ COOKIES_PATH = DATA_DIR / "cookies.txt"
 logger = logging.getLogger("yt-dl")
 
 
+import urllib.request
+import urllib.error
+
 def _fire_webhook(job):
+    if job.status not in ("completed", "failed"):
+        return
     try:
         cfg = load_config()
         url = cfg.get("webhook_url", "").strip()
@@ -34,13 +39,12 @@ def _fire_webhook(job):
             "file_path": job.file_path,
             "file_size": job.file_size,
             "error": job.error_message,
-        })
-        subprocess.run(
-            ["curl", "-s", "-X", "POST", url,
-             "-H", "Content-Type: application/json",
-             "-d", payload, "--max-time", "10"],
-            capture_output=True, timeout=15
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=payload, headers={"Content-Type": "application/json"}, method="POST"
         )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            resp.read()
     except Exception as e:
         logger.warning(f"Webhook error: {e}")
 
@@ -66,6 +70,8 @@ class DownloadJob:
         self.file_path = row["file_path"]
         self.file_size = row["file_size"] or 0
         self.error_message = row["error_message"]
+        self.started_at = row["started_at"]
+        self.completed_at = row["completed_at"]
         self.proc = None
         self.position = 0
         self.last_saved_progress = 0.0
@@ -84,8 +90,7 @@ def save_job(job):
             WHERE job_id=?
         """, (job.title, job.status, job.progress, job.speed, job.eta,
               job.file_path, job.file_size, job.error_message,
-              datetime.now().isoformat() if job.status == "downloading" else None,
-              datetime.now().isoformat() if job.status in ("completed", "failed", "cancelled") else None,
+              job.started_at, job.completed_at,
               job.job_id))
         db.commit()
     except Exception as e:
@@ -158,7 +163,7 @@ def run_download(job, download_dir):
         env["OPENSSL_CONF"] = "/dev/null"
 
     try:
-        info_cmd = ["yt-dlp", "--format", format_str, "--dump-json", "--no-download", job.url]
+        info_cmd = ["yt-dlp", "--dump-json", "--no-download", job.url]
         result = subprocess.run(info_cmd, capture_output=True, text=True, timeout=30, env=env)
         if result.returncode == 0 and result.stdout:
             info = json.loads(result.stdout.strip().split("\n")[0])
@@ -190,7 +195,7 @@ def run_download(job, download_dir):
         '{"percent":"%(progress._percent_str)s",'
         '"speed":"%(progress._speed_str)s",'
         '"eta":"%(progress._eta_str)s",'
-        '"filename":"%(info.filename)s"}'
+        '"filepath":"%(info.filepath)s"}'
     )
 
     download_cmd.extend([
@@ -205,6 +210,8 @@ def run_download(job, download_dir):
         download_cmd.extend(["--cookies", str(COOKIES_PATH)])
 
     download_dir.mkdir(parents=True, exist_ok=True)
+    if not job.started_at:
+        job.started_at = datetime.now(timezone.utc).isoformat()
     logger.info(f"Starting download: {job.job_id} -> {job.title}")
 
     try:
@@ -233,13 +240,13 @@ def run_download(job, download_dir):
                     job.speed = data.get("speed", "")
                     job.eta = data.get("eta", "")
 
-                    filename = data.get("filename", "")
-                    if filename:
-                        ext = os.path.splitext(filename)[1].lower()
+                    filepath = data.get("filepath", "")
+                    if filepath and filepath != "NA":
+                        ext = os.path.splitext(filepath)[1].lower()
                         if ext in (".mp4", ".mkv", ".mp3", ".m4a"):
-                            job.file_path = filename
+                            job.file_path = filepath
                         elif not job.file_path and ext in (".webm", ".vtt"):
-                            job.file_path = filename
+                            job.file_path = filepath
 
                     now = time.time()
                     progress_changed = abs(job.progress - job.last_saved_progress) >= 1.0
@@ -269,25 +276,32 @@ def run_download(job, download_dir):
 
         proc.wait()
 
-        if not job.file_path or not os.path.exists(job.file_path) or os.path.getsize(job.file_path) == 0:
+        with queue_lock:
+            already_cancelled = job.job_id not in active_jobs or job.status == "cancelled"
+        if already_cancelled:
+            return
+
+        if not job.file_path or job.file_path == "NA" or not os.path.exists(job.file_path) or os.path.getsize(job.file_path) == 0:
             video_files = []
-            safe_title = "".join(c for c in (job.title or "") if c.isalnum() or c in " _-.")[:60].replace("/", "⧸")
+            safe_title = "".join(c for c in (job.title or "") if c.isalnum() or c in " _-.")[:60]
             for ext in [".mp4", ".mkv", ".webm", ".mp3", ".m4a"]:
-                video_files.extend(download_dir.glob(f"*{safe_title}*{ext}"))
+                video_files.extend(download_dir.rglob(f"*{safe_title}*{ext}"))
             if not video_files:
                 for ext in [".mp4", ".mkv", ".webm", ".mp3", ".m4a"]:
-                    video_files.extend(download_dir.glob(f"*{job.video_id}*{ext}"))
+                    video_files.extend(download_dir.rglob(f"*{job.video_id}*{ext}"))
             if video_files:
                 job.file_path = str(video_files[0])
 
         if proc.returncode == 0 and job.file_path:
             job.status = "completed"
             job.progress = 100.0
+            job.completed_at = datetime.now(timezone.utc).isoformat()
             if os.path.exists(job.file_path):
                 job.file_size = os.path.getsize(job.file_path)
             logger.info(f"Completed: {job.file_path}")
         else:
             job.status = "failed"
+            job.completed_at = datetime.now(timezone.utc).isoformat()
             if not job.error_message:
                 job.error_message = f"yt-dlp exited {proc.returncode}"
             logger.error(f"Failed: {job.error_message}")
@@ -321,6 +335,7 @@ def cancel_job(job_id: str) -> bool:
                 except ProcessLookupError:
                     pass
             job.status = "cancelled"
+            job.completed_at = datetime.now(timezone.utc).isoformat()
             del active_jobs[job_id]
             save_job(job)
             return True

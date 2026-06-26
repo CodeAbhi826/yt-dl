@@ -120,6 +120,13 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 /* ── Theme toggle icon ── */
 .theme-toggle svg { display: block; }
 
+@media (max-width: 768px) {
+  .nav { flex-wrap: wrap; height: auto; padding: 12px 16px; }
+  .nav-links { order: 3; width: 100%; margin-left: 0; margin-top: 8px; justify-content: space-around; }
+  .nav-link { font-size: 12px; padding: 6px 10px; }
+  #conn-status { display: none; }
+}
+
 /* ── Logs ── */
 .log-line { font-family: 'SF Mono', Monaco, monospace; font-size: 12px; padding: 6px 12px; border-radius: 6px; margin-bottom: 4px; display: flex; gap: 12px; }
 .log-time { color: var(--text-muted); flex-shrink: 0; min-width: 140px; }

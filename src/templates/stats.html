@@ -3,8 +3,13 @@
 {% block content %}
 <div style="display:flex;align-items:center;gap:16px;margin-bottom:24px;">
 <h1 style="font-size:24px; font-weight:700;">Statistics</h1>
-<button id="reset-stats-btn" style="background:#dc2626;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:11px;text-transform:uppercase;letter-spacing:1px;font-weight:600;">Reset Stats</button>
+<button id="reset-stats-btn" style="background:#dc2626;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:11px;text-transform:uppercase;letter-spacing:1px;font-weight:600;">Clear History</button>
 </div>
+<div id="stats-empty" style="display:none; text-align:center; padding:80px 0; color:var(--text-muted);">
+  <p style="font-size:16px; font-weight:600; color:var(--text);">No downloads yet</p>
+  <p style="margin-top:8px;">Download some videos to see statistics here.</p>
+</div>
+<div id="stats-content">
 <div class="grid grid-4" style="margin-bottom:24px;">
 <div class="card"><div class="card-title">Total Downloads</div><div class="stat-value" id="stat-total">0</div><div class="stat-label">All time</div></div>
 <div class="card"><div class="card-title">Success Rate</div><div class="stat-value" id="stat-rate">0%</div><div class="stat-label" id="stat-rate-label">0 succeeded / 0 failed</div><div class="progress-bar"><div class="progress-fill" id="stat-rate-bar" style="width:0%"></div></div></div>
@@ -14,6 +19,7 @@
 <div class="grid grid-2">
 <div class="card"><div class="card-title">Downloads Over Time</div><div id="daily-chart" style="height:200px; display:flex; align-items:flex-end; gap:8px; padding:20px 0;"></div></div>
 <div class="card"><div class="card-title">Status Breakdown</div><div id="status-breakdown" style="margin-top:16px;"></div></div>
+</div>
 </div>
 {% endblock %}
 {% block scripts %}

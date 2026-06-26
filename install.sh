@@ -41,15 +41,11 @@ if ! python3 -c "import flask" 2>/dev/null; then
   MISSING+=" python-flask"
 fi
 
-if ! python3 -c "import dbus" 2>/dev/null; then
-  MISSING+=" python-dbus"
-fi
-
 if [ -n "$MISSING" ]; then
   warn "Missing dependencies:$MISSING"
   echo "  Install them with:"
   echo "    sudo pacman -S python python-pip yt-dlp"
-  echo "    pip install --user flask dbus-python"
+  echo "    pip install --user flask"
   echo ""
   read -rp "  Attempt to install missing packages? [Y/n] " yn
   yn="${yn:-Y}"
@@ -63,7 +59,7 @@ if [ -n "$MISSING" ]; then
     else
       warn "Unknown package manager. Install manually."
     fi
-    pip install --user flask dbus-python 2>/dev/null || true
+    pip install --user flask 2>/dev/null || true
     info "Dependencies installed"
   else
     warn "Skipping dependency installation"
@@ -128,6 +124,8 @@ done
 # ── Install systemd Service ───────────────────────────────
 step "Installing systemd service"
 
+PYTHON_BIN="$(command -v python3)"
+
 cat > "${SERVICE_DIR}/yt-dl.service" << EOF
 [Unit]
 Description=yt-dl — YouTube download daemon
@@ -135,7 +133,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 ${INSTALL_DIR}/src/app.py
+ExecStart=${PYTHON_BIN} ${INSTALL_DIR}/src/app.py
 Restart=on-failure
 RestartSec=5
 Environment=PYTHONPATH=${INSTALL_DIR}/src

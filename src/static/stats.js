@@ -14,6 +14,13 @@ function showToast(message, type) {
 }
 
 function renderStats(data) {
+  if (data.total_downloaded === 0) {
+    document.getElementById("stats-content").style.display = "none";
+    document.getElementById("stats-empty").style.display = "";
+    return;
+  }
+  document.getElementById("stats-content").style.display = "";
+  document.getElementById("stats-empty").style.display = "none";
   document.getElementById("stat-total").textContent = data.total_downloaded;
   document.getElementById("stat-rate").textContent = data.success_rate + "%";
   document.getElementById("stat-rate-label").textContent = data.total_success + " succeeded / " + data.total_failed + " failed";
@@ -43,12 +50,12 @@ function fetchStats() {
 }
 
 document.getElementById("reset-stats-btn").addEventListener("click", function() {
-  if (!confirm("Reset all statistics?")) return;
+  if (!confirm("Delete ALL download records from the database? Files on disk will NOT be deleted. This cannot be undone.")) return;
   const btn = this;
   btn.textContent = "Clearing..."; btn.disabled = true;
   fetch("/api/stats/reset", {method: "POST"})
-    .then(r => r.json()).then(d => { showToast("Cleared " + d.deleted_records + " records"); fetchStats(); btn.textContent = "Reset Stats"; btn.disabled = false; })
-    .catch(e => { showToast("Error: " + e, "error"); btn.textContent = "Reset Stats"; btn.disabled = false; });
+    .then(r => r.json()).then(d => { showToast("Cleared " + d.deleted_records + " records"); fetchStats(); btn.textContent = "Clear History"; btn.disabled = false; })
+    .catch(e => { showToast("Error: " + e, "error"); btn.textContent = "Clear History"; btn.disabled = false; });
 });
 
 fetchStats();

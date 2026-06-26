@@ -2,6 +2,28 @@
 const API_URL = 'http://127.0.0.1:5000';
 const DEFAULT_QUALITY = '720p';
 let prevJobs = {};
+let sourceTabs = {};
+
+// ─── Auth helper ──────────────────────────────────────────────
+async function getAuthHeaders() {
+  const { apiKey } = await chrome.storage.local.get('apiKey');
+  return apiKey ? { 'Authorization': 'Bearer ' + apiKey } : {};
+}
+
+async function apiFetch(path, opts = {}) {
+  const headers = { ...(opts.headers || {}), ...(await getAuthHeaders()) };
+  return fetch(`${API_URL}${path}`, { ...opts, headers });
+}
+
+// ─── Persist prevJobs ─────────────────────────────────────────
+async function loadPrevJobs() {
+  const { prevJobs: stored } = await chrome.storage.local.get('prevJobs');
+  prevJobs = stored || {};
+}
+
+async function savePrevJobs() {
+  await chrome.storage.local.set({ prevJobs });
+}
 
 // ─── Context Menu ───────────────────────────────────────────
 chrome.runtime.onInstalled.addListener(() => {
@@ -11,17 +33,19 @@ chrome.runtime.onInstalled.addListener(() => {
     contexts: ['link', 'video', 'audio']
   });
   chrome.alarms.create('heartbeat', { periodInMinutes: 0.5 });
-  chrome.alarms.create('poll', { periodInMinutes: 0.1 });
+  chrome.alarms.create('poll', { periodInMinutes: 0.5 });
+  loadPrevJobs();
 });
 
 chrome.runtime.onStartup.addListener(() => {
   chrome.alarms.create('heartbeat', { periodInMinutes: 0.5 });
-  chrome.alarms.create('poll', { periodInMinutes: 0.1 });
+  chrome.alarms.create('poll', { periodInMinutes: 0.5 });
+  loadPrevJobs();
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'heartbeat') {
-    fetch(`${API_URL}/api/extension/heartbeat`, { method: 'POST' }).catch(() => {});
+    apiFetch('/api/extension/heartbeat', { method: 'POST' }).catch(() => {});
   } else if (alarm.name === 'poll') {
     pollQueue();
   }
@@ -29,7 +53,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 // ─── Notification Polling ────────────────────────────────────
 function pollQueue() {
-  fetch(`${API_URL}/api/queue`)
+  apiFetch('/api/queue')
     .then(r => r.json())
     .then(jobs => processJobs(jobs))
     .catch(() => {});
@@ -42,10 +66,12 @@ function processJobs(jobs) {
     seen[job.id] = true;
 
     if (!prev) {
-      if (job.status === 'downloading') {
-        showNotification('started', job);
-      } else if (job.status === 'completed') {
-        showNotification('completed', job);
+      if (prevJobs.__initialized) {
+        if (job.status === 'downloading') {
+          showNotification('started', job);
+        } else if (job.status === 'completed') {
+          showNotification('completed', job);
+        }
       }
       prevJobs[job.id] = job.status;
       continue;
@@ -63,8 +89,10 @@ function processJobs(jobs) {
   }
 
   for (const id in prevJobs) {
-    if (!seen[id]) delete prevJobs[id];
+    if (!seen[id] && id !== '__initialized') delete prevJobs[id];
   }
+  prevJobs.__initialized = true;
+  savePrevJobs();
 }
 
 // ─── Show In-Page Toast ──────────────────────────────────────
@@ -79,7 +107,6 @@ function showNotification(type, job) {
     started: 'Download Started'
   };
 
-  // Precompute meta string so injected function doesn't need formatBytes
   let meta = job.quality || '';
   if (type === 'completed') {
     meta += ' • mp4';
@@ -99,7 +126,18 @@ function showNotification(type, job) {
     meta
   };
 
-  // Inject self-contained toast function into active tab only
+  // Prefer source tab if known
+  const targetTabId = sourceTabs[job.id];
+  if (targetTabId) {
+    chrome.scripting.executeScript({
+      target: { tabId: targetTabId },
+      func: injectToast,
+      args: [data]
+    }).catch(() => fallbackNative(type, job, titles[type] || 'yt-dl'));
+    delete sourceTabs[job.id];
+    return;
+  }
+
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     let succeeded = 0;
     let total = tabs.length;
@@ -130,7 +168,6 @@ function injectToast(data) {
     var body = doc.body;
     if (!head || !body) return;
 
-    // Inject CSS once
     if (!doc.getElementById(styleId)) {
       var s = doc.createElement('style');
       s.id = styleId;
@@ -159,7 +196,6 @@ function injectToast(data) {
       head.appendChild(s);
     }
 
-    // Get or create container
     var container = doc.getElementById(contId);
     if (!container) {
       container = doc.createElement('div');
@@ -167,7 +203,6 @@ function injectToast(data) {
       body.appendChild(container);
     }
 
-    // Build toast
     var toast = doc.createElement('div');
     toast.className = 'ytdl-toast ytdl-toast--' + data.type;
 
@@ -231,7 +266,6 @@ function injectToast(data) {
     toast.appendChild(bodyEl);
     container.appendChild(toast);
 
-    // Auto dismiss
     var timeout = data.type === 'failed' ? 5000 : 3000;
     setTimeout(function () {
       if (toast.classList.contains('ytdl-exit')) return;
@@ -279,7 +313,7 @@ chrome.notifications.onClicked.addListener((id) => {
 
 chrome.notifications.onButtonClicked.addListener((id, buttonIndex) => {
   if (buttonIndex === 0) {
-    fetch(`${API_URL}/api/jobs/${id}/retry`, { method: 'POST' }).catch(() => {});
+    apiFetch(`/api/jobs/${id}/retry`, { method: 'POST' }).catch(() => {});
   }
 });
 
@@ -295,14 +329,14 @@ function formatBytes(b) {
 // ─── Context Menu Handler ────────────────────────────────────
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId !== 'yt-dl-download') return;
-  const url = info.linkUrl;
+  const url = info.linkUrl || info.srcUrl || info.pageUrl;
   if (!url) return;
 
   const result = await chrome.storage.local.get(['defaultQuality']);
   const quality = result.defaultQuality || DEFAULT_QUALITY;
 
   try {
-    const res = await fetch(`${API_URL}/api/add`, {
+    const res = await apiFetch('/api/add', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url, quality })
@@ -315,7 +349,10 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
     const body = await res.json();
 
-    // Show immediate "queued" toast on the clicked tab
+    if (body.job_id) {
+      sourceTabs[body.job_id] = tab.id;
+    }
+
     const titles = { queued: 'Added to Queue' };
     const thumb = '';
     const meta = quality ? quality + ' • Added to Queue' : 'Added to Queue';

@@ -122,21 +122,38 @@ function checkCookies() {
 }
 
 function saveSettings() {
+  const btn = document.querySelector('button.btn-primary');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+  const concurrent = parseInt(document.getElementById("concurrent_limit").value);
+  if (isNaN(concurrent) || concurrent < 1 || concurrent > 20) {
+    showToast("Concurrent limit must be 1-20", "error");
+    btn.disabled = false; btn.textContent = 'Save Settings';
+    return;
+  }
+  const playlistLimit = parseInt(document.getElementById("playlist_limit").value);
+  if (isNaN(playlistLimit) || playlistLimit < 1 || playlistLimit > 1000) {
+    showToast("Playlist limit must be 1-1000", "error");
+    btn.disabled = false; btn.textContent = 'Save Settings';
+    return;
+  }
   const cfg = {
     download_dir: document.getElementById("download_dir").value,
-    concurrent_limit: parseInt(document.getElementById("concurrent_limit").value),
+    concurrent_limit: concurrent,
     output_pattern: document.getElementById("output_pattern").value,
     default_quality: document.getElementById("default_quality").value,
-    playlist_limit: parseInt(document.getElementById("playlist_limit").value) || 200,
+    playlist_limit: playlistLimit,
     webhook_url: document.getElementById("webhook_url").value || "",
     embed_metadata: document.getElementById("embed_metadata").checked,
     embed_thumbnail: document.getElementById("embed_thumbnail").checked,
     embed_chapters: document.getElementById("embed_chapters").checked,
     embed_subs: document.getElementById("embed_subs").checked,
-    theme: document.getElementById("theme") ? document.getElementById("theme").value : "dark",
   };
   fetch("/api/settings", {method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(cfg)})
-    .then(r=>r.json()).then(d=> showToast("Settings saved"));
+    .then(r => { if (!r.ok) return r.json().then(err => { throw new Error(err.error); }); return r.json(); })
+    .then(d => showToast("Settings saved"))
+    .catch(err => showToast("Error: " + err.message, "error"))
+    .finally(() => { btn.disabled = false; btn.textContent = 'Save Settings'; });
 }
 
 document.addEventListener("DOMContentLoaded", function() {

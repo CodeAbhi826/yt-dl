@@ -10,7 +10,7 @@ $URL"
     exit 1
 fi
 
-if ! curl -s http://localhost:5000/api/health > /dev/null 2>&1; then
+if ! curl -sf http://localhost:5000/health > /dev/null 2>&1; then
     systemctl --user start yt-dl
     sleep 2
 fi

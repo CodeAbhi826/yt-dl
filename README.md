@@ -204,7 +204,11 @@ Export your browser cookies and upload the file at `http://localhost:5000/settin
 
 ```bash
 # Using yt-dlp's built-in cookie exporter
-yt-dlp --cookies-from-browser chrome --cookies cookies.txt --skip-download "https://youtube.com"
+# Option A: export browser cookies to a file
+yt-dlp --cookies-from-browser chrome:Default --cookies cookies.txt --skip-download "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+# Option B (recommended): use a browser extension like "Get cookies.txt LOCALLY"
+# Export cookies for youtube.com, save as cookies.txt
 ```
 
 Then upload `cookies.txt` via the Settings page. The daemon uses it automatically for all subsequent downloads.

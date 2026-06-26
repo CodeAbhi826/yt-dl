@@ -5,7 +5,7 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      - yt-dl-data:/root/.local/share/yt-dl
+      - yt-dl-data:/home/ytdl/.local/share/yt-dl
       - ./downloads:/mnt/storage/YouTube
     environment:
       - YTDL_API_KEY=

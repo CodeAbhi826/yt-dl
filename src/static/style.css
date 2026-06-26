@@ -49,6 +49,15 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
   .grid-2, .grid-3 { grid-template-columns: 1fr; }
 }
 
+/* Prevent flex children from forcing cards wider than their grid track.
+   Without this, long .q-meta text (e.g. error messages) with white-space:nowrap
+   makes .q-body grow, which makes .q-card overflow its grid column. */
+.grid-2 > *,
+.grid-3 > * { min-width: 0; }
+.dl-card, .q-card { min-width: 0; }
+.dl-body, .q-body { min-width: 0; }
+.dl-body > *, .q-body > * { min-width: 0; }
+
 /* ── Downloading Card ── */
 .dl-card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 16px; min-height: 160px; display: flex; gap: 16px; cursor: default; transition: transform 150ms ease, box-shadow 150ms ease; }
 .dl-card:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0,0,0,.25); }

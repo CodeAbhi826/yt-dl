@@ -32,7 +32,7 @@ from models import (
 COOKIES_PATH = DATA_DIR / "cookies.txt"
 from worker import (
     process_queue, cancel_job, retry_job, active_jobs, pause_job, resume_job,
-    queue_lock
+    queue_lock, save_job
 )
 from updater import start_auto_updater
 from _version import __version__
@@ -229,23 +229,47 @@ def api_resume_job(job_id):
 @app.route("/api/jobs/pause-all", methods=["POST"])
 @require_auth
 def api_pause_all():
+    """Pause every active (downloading) job. Inline the logic to avoid
+    re-acquiring queue_lock (which would deadlock since pause_job also
+    tries to acquire it)."""
     paused = 0
     with queue_lock:
         for job in list(active_jobs.values()):
-            if job.status == "downloading" and pause_job(job.job_id):
+            if job.status != "downloading":
+                continue
+            if not job.proc or job.proc.poll() is not None:
+                continue
+            try:
+                os.killpg(os.getpgid(job.proc.pid), signal.SIGSTOP)
+                job.status = "paused"
+                save_job(job)
                 paused += 1
-    logger.info(f"Paused {paused} jobs")
+                logger.info(f"Paused job: {job.job_id}")
+            except (ProcessLookupError, PermissionError) as e:
+                logger.warning(f"Failed to pause {job.job_id}: {e}")
+    logger.info(f"Paused {paused} jobs total")
     return jsonify({"paused": paused})
 
 @app.route("/api/jobs/resume-all", methods=["POST"])
 @require_auth
 def api_resume_all():
+    """Resume every paused job. Inline the logic to avoid deadlock."""
     resumed = 0
     with queue_lock:
         for job in list(active_jobs.values()):
-            if resume_job(job.job_id):
+            if job.status != "paused":
+                continue
+            if not job.proc or job.proc.poll() is not None:
+                continue
+            try:
+                os.killpg(os.getpgid(job.proc.pid), signal.SIGCONT)
+                job.status = "downloading"
+                save_job(job)
                 resumed += 1
-    logger.info(f"Resumed {resumed} jobs")
+                logger.info(f"Resumed job: {job.job_id}")
+            except (ProcessLookupError, PermissionError) as e:
+                logger.warning(f"Failed to resume {job.job_id}: {e}")
+    logger.info(f"Resumed {resumed} jobs total")
     return jsonify({"resumed": resumed})
 
 @app.route("/api/jobs/<job_id>", methods=["DELETE"])

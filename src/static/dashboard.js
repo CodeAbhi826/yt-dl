@@ -5,6 +5,13 @@ function escapeHtml(t) {
   return d.innerHTML;
 }
 
+function thumbHtml(j, cls) {
+  if (!j.video_id || !/youtube\.com|youtu\.be/.test(j.url || '')) {
+    return '<div class="' + cls + '-placeholder">YT</div>';
+  }
+  return '<img src="https://i.ytimg.com/vi/' + escapeHtml(j.video_id) + '/mqdefault.jpg" class="' + cls + '" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\';"><div class="' + cls + '-placeholder" style="display:none;">YT</div>';
+}
+
 function formatBytes(b) {
   if (!b || b === 0) return '0 B';
   for (const u of ['B', 'KB', 'MB', 'GB', 'TB']) {
@@ -40,9 +47,7 @@ function timeAgo(dateStr) {
 const $ = id => document.getElementById(id);
 
 function buildDownloadingCard(j) {
-  const thumb = j.video_id
-    ? '<img src="https://i.ytimg.com/vi/' + escapeHtml(j.video_id) + '/mqdefault.jpg" class="dl-thumb">'
-    : '<div class="dl-thumb-placeholder">YT</div>';
+  const thumb = thumbHtml(j, 'dl-thumb');
   const pct = j.progress || 0;
   const speed = j.speed ? escapeHtml(j.speed) : '';
   const eta = formatEta(j.eta);
@@ -66,9 +71,7 @@ function buildDownloadingCard(j) {
 }
 
 function buildQueueCard(j, pos) {
-  const thumb = j.video_id
-    ? '<img src="https://i.ytimg.com/vi/' + escapeHtml(j.video_id) + '/mqdefault.jpg" class="q-thumb">'
-    : '<div class="q-thumb-placeholder">YT</div>';
+  const thumb = thumbHtml(j, 'q-thumb');
   const sizeInfo = j.file_size ? formatBytes(j.file_size) : '';
   const meta = [j.quality, 'mp4', sizeInfo].filter(Boolean).join(' • ');
   const eta = formatEta(j.eta);
@@ -85,9 +88,7 @@ function buildQueueCard(j, pos) {
 }
 
 function buildRecentCard(j) {
-  const thumb = j.video_id
-    ? '<img src="https://i.ytimg.com/vi/' + escapeHtml(j.video_id) + '/mqdefault.jpg" class="q-thumb">'
-    : '<div class="q-thumb-placeholder">YT</div>';
+  const thumb = thumbHtml(j, 'q-thumb');
   const sizeInfo = j.file_size ? formatBytes(j.file_size) : '';
   const meta = [j.quality, 'mp4', sizeInfo, timeAgo(j.completed_at || j.created_at)].filter(Boolean).join(' • ');
   return '<div class="q-card completed" data-id="' + escapeHtml(j.id) + '">'
@@ -102,9 +103,7 @@ function buildRecentCard(j) {
 }
 
 function buildFailedCard(j) {
-  const thumb = j.video_id
-    ? '<img src="https://i.ytimg.com/vi/' + escapeHtml(j.video_id) + '/mqdefault.jpg" class="q-thumb">'
-    : '<div class="q-thumb-placeholder">YT</div>';
+  const thumb = thumbHtml(j, 'q-thumb');
   const errMsg = j.error_message || 'Unknown error';
   const meta = [j.quality, 'mp4', errMsg, timeAgo(j.created_at)].filter(Boolean).join(' • ');
   return '<div class="q-card failed" data-id="' + escapeHtml(j.id) + '">'
@@ -113,14 +112,12 @@ function buildFailedCard(j) {
     + '<div><div class="q-title" title="' + escapeHtml(j.title || '') + '">' + escapeHtml(j.title || j.video_id || 'Unknown') + '</div>'
     + '<div style="margin-top:2px;"><span class="q-status">✕ FAILED</span></div></div>'
     + '<div class="q-meta">' + escapeHtml(meta) + '</div>'
-    + '<div class="q-bottom" style="justify-content:space-between;"><span class="q-retry" onclick="retryJob(\'' + escapeHtml(j.id) + '\')">Retry</span><span class="q-cancel" onclick="window.location.href=\'/logs\'">View logs →</span></div>'
+    + '<div class="q-bottom" style="justify-content:space-between;"><span class="q-retry" onclick="retryJob(\'' + escapeHtml(j.id) + '\')">Retry</span><span class="q-cancel" style="cursor:pointer;" onclick="window.location.href=\'/logs\'">View logs →</span></div>'
     + '</div></div>';
 }
 
 function buildPausedCard(j) {
-  const thumb = j.video_id
-    ? '<img src="https://i.ytimg.com/vi/' + escapeHtml(j.video_id) + '/mqdefault.jpg" class="dl-thumb">'
-    : '<div class="dl-thumb-placeholder">YT</div>';
+  const thumb = thumbHtml(j, 'dl-thumb');
   const pct = j.progress || 0;
   return '<div class="dl-card" data-id="' + escapeHtml(j.id) + '" style="opacity:0.6">'
     + '<div class="dl-thumb-wrap">' + thumb + '</div>'
@@ -230,7 +227,12 @@ function cancelJob(id) {
 }
 
 function deleteJob(id) {
-  if (!confirm("Delete?")) return;
+  const job = prevJobs.find(j => j.id === id);
+  const hasFile = job && job.file_path && job.status === 'completed';
+  const msg = hasFile
+    ? "Delete this download AND remove the file from disk?"
+    : "Delete this download record?";
+  if (!confirm(msg)) return;
   fetch("/api/jobs/" + id, {method:"DELETE"}).then(r => r.json()).then(d => { showToast("Deleted"); });
 }
 
@@ -241,8 +243,9 @@ document.addEventListener("DOMContentLoaded", function() {
     clearBtn.addEventListener("click", function() {
       const completed = prevJobs.filter(j => j.status === 'completed');
       if (!completed.length) return;
+      if (!confirm("Delete " + completed.length + " completed download(s) AND their files from disk?")) return;
       fetch("/api/bulk/delete", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ids: completed.map(j => j.id)})})
-        .then(r => r.json()).then(d => { showToast("Cleared " + d.deleted + " completed"); });
+        .then(r => r.json()).then(d => { showToast("Deleted " + d.deleted + " files"); });
     });
   }
 

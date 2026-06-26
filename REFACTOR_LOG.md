@@ -759,3 +759,91 @@ Project is **feature-complete for a v1.0**. What's listed above is polish/niche 
 
 - Removed `content_scripts` entry (no longer needed — toast is injected via `scripting.executeScript`)
 - Added `"scripting"` permission
+
+---
+
+## Phase 18 — PhantomJS OpenSSL Fix (Jun 26)
+
+**Problem:** PhantomJS crashes on OpenSSL 3.x with `libproviders.so: cannot open shared object file` because OpenSSL 3 requires a provider config but PhantomJS doesn't set one.
+
+**Fix:** Pass `OPENSSL_CONF=/dev/null` in subprocess `env` in `worker.py` — this skips provider loading and makes PhantomJS work.
+
+**Removed:** `src/phantom_patch.py` (Playwright monkey-patch approach — didn't work because worker runs yt-dlp as subprocess, not as Python library).
+
+**Cleanup:**
+- `phantom_patch.py` deleted
+- `src/worker.py`: `env = {**os.environ, "OPENSSL_CONF": "/dev/null"}` in `subprocess.run` and `subprocess.Popen`
+- `src/app.py`: `OPENSSL_CONF` override conditional on user env (Bug 68)
+
+**Covers:** Bug 68.
+
+---
+
+## Bugfix Prompt — All 68 Bugs Applied (Jun 26)
+
+**Commit:** `1bc0fb6` — `fix: complete bugfix prompt — all 68 bugs across 7 phases`
+
+### Phase 1 — worker.py
+- `_fire_webhook()` via `urllib.request` (no more `curl` subprocess) — Bug 4
+- `rglob` fallback for filename detection — Bug 13
+- UTC timezone on all timestamps — Bug 16
+- `started_at`/`completed_at` preserved from DB row — Bug 2
+- Cancelled-job guard after `proc.wait()` — Bug 1
+- Info command has no `--format` flag — Bug 36
+- `filepath` (not `filename`) in progress template with NA guard — Bugs 6, 67
+- Removed dead `.replace("/", "⧸")` — Bug 35
+- Webhook only fires for completed/failed (not cancelled) — Bug 12
+- Created `src/_version.py` with `__version__ = "1.1.0"` — Bug 29
+
+### Phase 2 — app.py
+- Constant-time auth via `hmac.compare_digest` — Bug 23
+- Version from `_version.py` — Bug 29
+- Pagination (`limit`/`offset`) for `/api/queue` — Bug 38
+- Settings validation (type checks, range checks, allowed keys) — Bug 20
+- `max_log_lines` deque resize on config update — Bug 28
+- Open-path restriction to download directory — Bug 24
+- `bulk_retry` only targets `failed`/`cancelled` jobs — Bug 14
+- Cookie path leak fixed (no path in response) — Bug 27
+- Stats: daily bars with zero-fill, separate status buckets — Bugs 39, 40
+- Logs count clamped to 1-1000 — Bug 21
+- Playlist: URL fallback chain, `uuid.uuid4()` for job_id — Bug 5, 15
+- Playlist DoS guard: `--playlist-end 50`, 10s timeout — Bug 22
+- SSE DB connection leak: `with closing(get_db())` — Bug 19
+- SSE hash: `hashlib.md5` over Python's built-in `hash()` — Bug 42
+- SSE N+1: single background poll thread → broadcast to subscribers — Bug 62
+- Config loaded once in `api_add_job` instead of twice — Bug 37
+
+### Phase 3 — style.css
+- Responsive nav collapse at 768px (flex-wrap, hidden conn-text) — Bug 59
+
+### Phase 4 — dashboard.js
+- `loadMore()` pagination button — Bug 54
+- Failed card: "View logs →" link instead of entire card clickable — Bug 61
+
+### Phase 5 — templates + theme.js
+- **FOUC fix**: inline `<script>` in `<head>` before CSS loads — Bug 50
+- **Theme toggle**: reverts on fetch error — Bug 60
+- **Stats empty state**: "No downloads yet" message — Bug 55
+- **"Clear Display"** renamed to **"Clear View"** — Bug 58
+- **Settings**: client-side validation, button disables during save — Bugs 56, 57
+- **"Reset Stats"** renamed to **"Clear History"** with explicit confirm — Bug 66
+
+### Phase 6 — Extension
+- `info.linkUrl || info.srcUrl || info.pageUrl` for video/audio context — Bug 7
+- `chrome.storage.local` + `__initialized` flag to prevent notification storm — Bug 8
+- `apiFetch()` helper with auth headers; API key input in popup — Bug 9
+- Alarm `periodInMinutes` changed to 0.5 (Chrome minimum) — Bug 10
+- `sourceTabs` tracking for toast on originating tab — Bug 33
+- Removed `<all_urls>` and YouTube host_permissions — Bug 34
+
+### Phase 7 — Docker/Install/README
+- Dockerfile: non-root `ytdl` user, `COPY --chown`, `USER`, `HOME` — Bug 26
+- docker-compose.yml: volume path → `/home/ytdl/.local/share/yt-dl` — Bug 26
+- handler.sh: `/health` (not `/api/health`), `curl -sf` flag — Bug 17
+- install.sh: `command -v python3`, removed stale dbus check — Bugs 30, 31
+- install.fish: `notifications.py` ref → "handled by browser extension" — Bug 32
+- README.md: fixed `--cookies-from-browser` example — Bug 41
+
+### Other
+- 77 PornHub URLs extracted from daemon log, saved to `~/.local/share/yt-dl/hub_urls.txt`. All 73 active/queued jobs cancelled.
+- `summary.md` created as a concise overview.

@@ -35,12 +35,22 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 .section-label { font-size: 12px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: #8a8a8a; margin-bottom: 12px; }
 
 /* ── Grids ── */
+/* Fixed layout: 2 cols for downloading, 3 cols for queued/recent/failed.
+   Cards wrap naturally (5 downloading = 2+2+1). Does NOT collapse to 1 col
+   on desktop. Tablet: 3-col grid drops to 2. Phone: all single column. */
 .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-@media (max-width: 900px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+@media (max-width: 900px) and (min-width: 641px) {
+  .grid-3 { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 640px) {
+  .grid-2, .grid-3 { grid-template-columns: 1fr; }
+}
 
 /* ── Downloading Card ── */
-.dl-card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 16px; height: 160px; display: flex; gap: 16px; cursor: default; transition: transform 150ms ease, box-shadow 150ms ease; }
+.dl-card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 16px; min-height: 160px; display: flex; gap: 16px; cursor: default; transition: transform 150ms ease, box-shadow 150ms ease; }
 .dl-card:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0,0,0,.25); }
 
 .dl-thumb-wrap { flex-shrink: 0; width: 240px; height: 135px; position: relative; }
@@ -63,7 +73,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 .dl-cancel:hover { color: #ff725f; }
 
 /* ── Queue / Recent / Failed Card ── */
-.q-card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 16px; height: 120px; display: flex; gap: 14px; cursor: default; transition: transform 150ms ease, box-shadow 150ms ease; }
+.q-card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 16px; min-height: 120px; display: flex; gap: 14px; cursor: default; transition: transform 150ms ease, box-shadow 150ms ease; }
 .q-card:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0,0,0,.25); }
 
 .q-thumb-wrap { flex-shrink: 0; width: 160px; height: 90px; position: relative; }

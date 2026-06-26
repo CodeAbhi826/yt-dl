@@ -844,6 +844,3 @@ Project is **feature-complete for a v1.0**. What's listed above is polish/niche 
 - install.fish: `notifications.py` ref → "handled by browser extension" — Bug 32
 - README.md: fixed `--cookies-from-browser` example — Bug 41
 
-### Other
-- 77 PornHub URLs extracted from daemon log, saved to `~/.local/share/yt-dl/hub_urls.txt`. All 73 active/queued jobs cancelled.
-- `summary.md` created as a concise overview.

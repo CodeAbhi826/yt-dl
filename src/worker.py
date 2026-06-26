@@ -151,9 +151,11 @@ def run_download(job, download_dir):
     cfg = load_config()
     format_str = QUALITY_MAP.get(job.quality, QUALITY_MAP["720p"])
 
+    env = {**os.environ, "OPENSSL_CONF": "/dev/null"}
+
     try:
         info_cmd = ["yt-dlp", "--format", format_str, "--dump-json", "--no-download", job.url]
-        result = subprocess.run(info_cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(info_cmd, capture_output=True, text=True, timeout=30, env=env)
         if result.returncode == 0 and result.stdout:
             info = json.loads(result.stdout.strip().split("\n")[0])
             job.title = info.get("title", "Unknown")[:80]
@@ -210,6 +212,7 @@ def run_download(job, download_dir):
             bufsize=1,
             cwd=str(download_dir),
             start_new_session=True,
+            env=env,
         )
         job.proc = proc
 

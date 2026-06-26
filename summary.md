@@ -4,8 +4,7 @@
 - **Root cause**: OpenSSL 3.x provider module crash (`libproviders.so` not found) in PhantomJS
 - **Fix**: `OPENSSL_CONF=/dev/null` env var in worker.py subprocess calls
 - **Removed**: `src/phantom_patch.py` (Playwright approach didn't work — worker uses subprocess, not Python library)
-- **77 PornHub URLs** extracted from daemon log, saved to `~/.local/share/yt-dl/hub_urls.txt`
-- **73 active/queued jobs** cancelled
+- **73 active/queued jobs** cancelled to clear the queue
 
 ## Bugfix Prompt — All 68 Bugs Applied (Jun 26)
 

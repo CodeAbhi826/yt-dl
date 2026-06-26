@@ -8,10 +8,49 @@
 <footer class="page-footer" id="page-footer">
   <span id="footer-left"></span>
   <div class="footer-actions">
+    <span class="footer-action" id="bulk-add">+ Bulk add</span>
     <span class="footer-action footer-action-danger" id="clear-completed">Delete completed</span>
     <span class="footer-action footer-action-danger" id="pause-all">Pause all</span>
+    <span class="toggle-row" id="master-toggle-row" title="When OFF, new downloads won't start. Active downloads keep running.">
+      <span class="toggle" id="master-toggle"><span class="knob"></span></span>
+      <span class="toggle-label" id="master-toggle-label">Downloads: ON</span>
+    </span>
   </div>
 </footer>
+
+<!-- Bulk Add Modal -->
+<div id="bulk-modal" class="modal-backdrop" style="display:none;">
+  <div class="modal">
+    <h3>Bulk add downloads</h3>
+    <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">
+      One URL per line. Duplicates of completed downloads will be skipped.
+      Playlists are added as a single job and expanded by the queue worker.
+    </p>
+    <textarea id="bulk-urls" placeholder="https://www.youtube.com/watch?v=...&#10;https://youtu.be/...&#10;https://www.tiktok.com/@user/video/..." rows="8"></textarea>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; gap:12px;">
+      <div>
+        <span id="bulk-count" style="font-size:11px; color:var(--text-muted);">0 URLs detected</span>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <label style="font-size:11px; color:var(--text-muted);">Quality:</label>
+        <select id="bulk-quality" class="form-input" style="width:auto; padding:4px 8px; font-size:12px;">
+          <option value="144p">144p</option>
+          <option value="240p">240p</option>
+          <option value="360p">360p</option>
+          <option value="480p">480p</option>
+          <option value="720p" selected>720p</option>
+          <option value="1080p">1080p</option>
+          <option value="1440p">1440p</option>
+          <option value="2160p">2160p</option>
+          <option value="best">Best</option>
+          <option value="audio">Audio (MP3)</option>
+        </select>
+        <button class="btn btn-secondary" onclick="closeBulkModal()">Cancel</button>
+        <button class="btn btn-primary" id="bulk-submit" onclick="submitBulkAdd()">Queue all</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='dashboard.js') }}"></script>

@@ -172,8 +172,80 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 .checkbox-group { display: flex; align-items: center; gap: 10px; cursor: pointer; }
 .checkbox-group input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
 .btn { padding: 8px 16px; border-radius: 10px; border: none; cursor: pointer; font-family: var(--font); font-size: 13px; font-weight: 500; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-primary { background: var(--accent); color: white; }
 .btn-primary:hover { background: var(--accent-hover); }
 .btn-secondary { background: rgba(255,255,255,.06); color: var(--text); }
 .btn-danger { background: #dc2626; color: white; }
 .btn-sm { padding: 6px 12px; font-size: 12px; }
+
+/* ── Master Toggle ── */
+.toggle-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+.toggle-row:hover { background: rgba(255,255,255,.04); }
+.toggle {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  background: #333;
+  border-radius: 999px;
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+}
+.toggle.on { background: var(--green); }
+.toggle .knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+}
+.toggle.on .knob { transform: translateX(16px); }
+.toggle-label { font-size: 12px; font-weight: 500; color: var(--text-muted); }
+.toggle-label.on { color: var(--green); }
+.toggle-label.off { color: var(--text-muted); }
+
+/* ── Bulk Add Modal ── */
+.modal-backdrop {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.7);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.modal {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  width: 90%;
+  max-width: 560px;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+}
+.modal h3 { font-size: 18px; margin-bottom: 12px; }
+.modal textarea {
+  width: 100%;
+  background: #1c1c1c;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 13px;
+  color: var(--text);
+  font-family: 'SF Mono', Monaco, monospace;
+  resize: vertical;
+  line-height: 1.5;
+}
+.modal textarea:focus { outline: none; border-color: var(--accent); }

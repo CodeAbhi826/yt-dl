@@ -124,6 +124,9 @@ def process_queue():
 
 def _process_queue():
     cfg = load_config()
+    # Master toggle — if OFF, don't start any new downloads.
+    if not cfg.get("downloads_enabled", True):
+        return
     concurrent_limit = cfg.get("concurrent_limit", 3)
     download_dir = Path(cfg.get("download_dir", "/mnt/storage/YouTube"))
 

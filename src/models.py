@@ -31,6 +31,7 @@ DEFAULT_CONFIG = {
     "playlist_limit": 200,
     "max_log_lines": 500,
     "webhook_url": "",
+    "downloads_enabled": True,
 }
 
 QUALITY_MAP = {

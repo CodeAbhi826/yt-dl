@@ -73,7 +73,7 @@ function buildDownloadingCard(j) {
 function buildQueueCard(j, pos) {
   const thumb = thumbHtml(j, 'q-thumb');
   const sizeInfo = j.file_size ? formatBytes(j.file_size) : '';
-  const meta = [j.quality, 'mp4', sizeInfo].filter(Boolean).join(' • ');
+  const meta = [j.quality, 'mp4', sizeInfo, downloadsEnabled ? '' : '⏸ waiting for toggle'].filter(Boolean).join(' • ');
   const eta = formatEta(j.eta);
   const etaHtml = eta ? '<span class="q-eta">🕒 ~' + escapeHtml(eta) + '</span>' : '';
 
@@ -236,11 +236,159 @@ function deleteJob(id) {
   fetch("/api/jobs/" + id, {method:"DELETE"}).then(r => r.json()).then(d => { showToast("Deleted"); });
 }
 
+// ─── Master Toggle ───
+let downloadsEnabled = true;
+
+async function loadToggleState() {
+  try {
+    const r = await fetch('/api/info');
+    const d = await r.json();
+    downloadsEnabled = d.downloads_enabled !== false;
+    updateToggleUI();
+  } catch (e) {
+    downloadsEnabled = true;
+    updateToggleUI();
+  }
+}
+
+function updateToggleUI() {
+  const toggle = document.getElementById('master-toggle');
+  const label = document.getElementById('master-toggle-label');
+  if (!toggle || !label) return;
+  if (downloadsEnabled) {
+    toggle.classList.add('on');
+    label.classList.add('on');
+    label.classList.remove('off');
+    label.textContent = 'Downloads: ON';
+  } else {
+    toggle.classList.remove('on');
+    label.classList.add('off');
+    label.classList.remove('on');
+    label.textContent = 'Downloads: OFF';
+  }
+}
+
+async function toggleDownloads() {
+  const newState = !downloadsEnabled;
+  try {
+    const r = await fetch('/api/toggle', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: newState })
+    });
+    if (!r.ok) throw new Error('Toggle failed');
+    downloadsEnabled = newState;
+    updateToggleUI();
+    showToast(newState ? 'Downloads enabled' : 'Downloads paused — new jobs will wait in queue');
+  } catch (e) {
+    showToast('Toggle failed: ' + e.message, 'error');
+  }
+}
+
+// ─── Bulk Add Modal ───
+function openBulkModal() {
+  document.getElementById('bulk-modal').style.display = 'flex';
+  document.getElementById('bulk-urls').focus();
+  updateBulkCount();
+}
+
+function closeBulkModal() {
+  document.getElementById('bulk-modal').style.display = 'none';
+}
+
+function updateBulkCount() {
+  const text = document.getElementById('bulk-urls').value;
+  const urls = text.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+  const count = urls.length;
+  const valid = urls.filter(u => /^https?:\/\//.test(u)).length;
+  const invalid = count - valid;
+  const el = document.getElementById('bulk-count');
+  const submitBtn = document.getElementById('bulk-submit');
+  if (count === 0) {
+    el.textContent = '0 URLs detected';
+    el.style.color = 'var(--text-muted)';
+    if (submitBtn) submitBtn.textContent = 'Queue all';
+  } else {
+    el.textContent = `${count} URL${count !== 1 ? 's' : ''} detected` +
+      (invalid > 0 ? ` · ${invalid} invalid` : '') +
+      ` · duplicates auto-skipped on submit`;
+    el.style.color = invalid > 0 ? 'var(--orange)' : 'var(--text-secondary)';
+    if (submitBtn) submitBtn.textContent = `Queue all ${count}`;
+  }
+}
+
+async function submitBulkAdd() {
+  const text = document.getElementById('bulk-urls').value;
+  const urls = text.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+  const quality = document.getElementById('bulk-quality').value;
+
+  if (urls.length === 0) {
+    showToast('No URLs to add', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('bulk-submit');
+  btn.disabled = true;
+  btn.textContent = 'Queuing...';
+
+  try {
+    const r = await fetch('/api/bulk/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ urls, quality })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Bulk add failed');
+
+    let msg = `Queued ${d.added} download${d.added !== 1 ? 's' : ''}`;
+    if (d.skipped_duplicate > 0) msg += ` · ${d.skipped_duplicate} duplicate${d.skipped_duplicate !== 1 ? 's' : ''} skipped`;
+    if (d.skipped_invalid > 0) msg += ` · ${d.skipped_invalid} invalid`;
+    showToast(msg);
+
+    if (d.added > 0) {
+      closeBulkModal();
+      document.getElementById('bulk-urls').value = '';
+    }
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Queue all';
+  }
+}
+
 // Footer actions
 document.addEventListener("DOMContentLoaded", function() {
+  loadToggleState();
+  const toggleRow = document.getElementById('master-toggle-row');
+  if (toggleRow) {
+    toggleRow.addEventListener('click', toggleDownloads);
+  }
+  // Re-check toggle state every 10s (in case another client changed it)
+  setInterval(loadToggleState, 10000);
+
+  const bulkBtn = document.getElementById('bulk-add');
+  if (bulkBtn) {
+    bulkBtn.addEventListener('click', openBulkModal);
+  }
+  const bulkTextarea = document.getElementById('bulk-urls');
+  if (bulkTextarea) {
+    bulkTextarea.addEventListener('input', updateBulkCount);
+  }
+  const modal = document.getElementById('bulk-modal');
+  if (modal) {
+    modal.addEventListener('click', function(e) {
+      if (e.target === modal) closeBulkModal();
+    });
+  }
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && modal && modal.style.display !== 'none') {
+      closeBulkModal();
+    }
+  });
+
   const clearBtn = document.getElementById("clear-completed");
   if (clearBtn) {
-    clearBtn.addEventListener("click", function() {
       const completed = prevJobs.filter(j => j.status === 'completed');
       if (!completed.length) return;
       if (!confirm("Delete " + completed.length + " completed download(s) AND their files from disk?")) return;

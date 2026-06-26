@@ -159,10 +159,12 @@ def health():
 
 @app.route("/api/info")
 def api_info():
+    cfg = load_config()
     return jsonify({
         "dbus_available": False,
         "version": __version__,
         "auth_required": bool(API_KEY),
+        "downloads_enabled": cfg.get("downloads_enabled", True),
     })
 
 @app.route("/api/extension/heartbeat", methods=["POST"])
@@ -373,6 +375,7 @@ ALLOWED_SETTINGS = {
     "playlist_limit": int,
     "max_log_lines": int,
     "webhook_url": str,
+    "downloads_enabled": bool,
 }
 
 VALID_QUALITIES = {"144p","240p","360p","480p","720p","1080p","1440p","2160p","best","audio"}
@@ -411,6 +414,21 @@ def api_update_settings():
 def api_reset_settings():
     save_config(DEFAULT_CONFIG.copy())
     return jsonify(DEFAULT_CONFIG.copy())
+
+@app.route("/api/toggle", methods=["PUT"])
+@require_auth
+def api_toggle_downloads():
+    data = request.get_json() or {}
+    if "enabled" not in data:
+        return jsonify({"error": "Missing 'enabled' field"}), 400
+    enabled = bool(data["enabled"])
+    cfg = load_config()
+    cfg["downloads_enabled"] = enabled
+    save_config(cfg)
+    logger.info(f"Master download toggle: {'ON' if enabled else 'OFF'}")
+    if enabled:
+        process_queue()
+    return jsonify({"downloads_enabled": enabled})
 
 @app.route("/api/settings/cookies", methods=["GET"])
 def api_cookies_status():
@@ -635,6 +653,79 @@ def api_add_job():
     process_queue()
 
     return jsonify({"job_id": job_id, "status": "queued"})
+
+@app.route("/api/bulk/add", methods=["POST"])
+@require_auth
+def api_bulk_add():
+    """Add multiple URLs at once. Each URL is validated and deduplicated
+    against completed jobs. Playlists are NOT expanded here — they're
+    inserted as a single job and handled by the normal queue process."""
+    data = request.get_json() or {}
+    urls = data.get("urls", [])
+    quality = data.get("quality")
+    cfg = load_config()
+    if not quality:
+        quality = cfg.get("default_quality", "720p")
+
+    if not isinstance(urls, list) or not urls:
+        return jsonify({"error": "No URLs provided"}), 400
+
+    if len(urls) > 100:
+        return jsonify({"error": "Maximum 100 URLs per request"}), 400
+
+    added = 0
+    skipped_duplicate = 0
+    skipped_invalid = 0
+    results = []
+
+    db = get_db()
+    try:
+        existing_urls = {r["url"] for r in db.execute(
+            "SELECT DISTINCT url FROM downloads WHERE status='completed'"
+        ).fetchall()}
+
+        for url in urls:
+            url = (url or "").strip()
+            if not url:
+                continue
+            if not re.match(r"https?://", url):
+                skipped_invalid += 1
+                results.append({"url": url, "status": "invalid"})
+                continue
+            if url in existing_urls:
+                skipped_duplicate += 1
+                results.append({"url": url, "status": "duplicate"})
+                continue
+
+            video_id = ""
+            m = re.search(r"(?:v=|/)([A-Za-z0-9_-]{11})", url)
+            if m:
+                video_id = m.group(1)
+
+            url_hash = hashlib.sha256(url.encode()).hexdigest()[:12]
+            job_id = f"job_{int(time.time() * 1000)}_{url_hash}_{added}"
+            db.execute(
+                "INSERT INTO downloads (job_id, video_id, url, quality, status, title) VALUES (?, ?, ?, ?, 'queued', ?)",
+                (job_id, video_id, url, quality, "")
+            )
+            existing_urls.add(url)
+            added += 1
+            results.append({"url": url, "status": "added", "job_id": job_id})
+
+        db.commit()
+    finally:
+        db.close()
+
+    logger.info(f"Bulk add: {added} added, {skipped_duplicate} duplicates, {skipped_invalid} invalid")
+    if added > 0:
+        process_queue()
+    return jsonify({
+        "added": added,
+        "skipped_duplicate": skipped_duplicate,
+        "skipped_invalid": skipped_invalid,
+        "total": len(urls),
+        "results": results
+    })
 
 # ── Page Routes ───────────────────────────────────────────────────
 

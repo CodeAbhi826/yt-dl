@@ -151,7 +151,11 @@ def run_download(job, download_dir):
     cfg = load_config()
     format_str = QUALITY_MAP.get(job.quality, QUALITY_MAP["720p"])
 
-    env = {**os.environ, "OPENSSL_CONF": "/dev/null"}
+    # Some yt-dlp extractors load phantomjs which crashes with OpenSSL 3.x
+    # provider errors. Only apply the workaround if user hasn't set it.
+    env = {**os.environ}
+    if "OPENSSL_CONF" not in os.environ:
+        env["OPENSSL_CONF"] = "/dev/null"
 
     try:
         info_cmd = ["yt-dlp", "--format", format_str, "--dump-json", "--no-download", job.url]

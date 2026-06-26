@@ -783,64 +783,189 @@ Project is **feature-complete for a v1.0**. What's listed above is polish/niche 
 
 **Commit:** `1bc0fb6` — `fix: complete bugfix prompt — all 68 bugs across 7 phases`
 
-### Phase 1 — worker.py
-- `_fire_webhook()` via `urllib.request` (no more `curl` subprocess) — Bug 4
-- `rglob` fallback for filename detection — Bug 13
-- UTC timezone on all timestamps — Bug 16
-- `started_at`/`completed_at` preserved from DB row — Bug 2
-- Cancelled-job guard after `proc.wait()` — Bug 1
-- Info command has no `--format` flag — Bug 36
-- `filepath` (not `filename`) in progress template with NA guard — Bugs 6, 67
-- Removed dead `.replace("/", "⧸")` — Bug 35
-- Webhook only fires for completed/failed (not cancelled) — Bug 12
-- Created `src/_version.py` with `__version__ = "1.1.0"` — Bug 29
+### `src/worker.py` (Phases 1)
 
-### Phase 2 — app.py
-- Constant-time auth via `hmac.compare_digest` — Bug 23
-- Version from `_version.py` — Bug 29
-- Pagination (`limit`/`offset`) for `/api/queue` — Bug 38
-- Settings validation (type checks, range checks, allowed keys) — Bug 20
-- `max_log_lines` deque resize on config update — Bug 28
-- Open-path restriction to download directory — Bug 24
-- `bulk_retry` only targets `failed`/`cancelled` jobs — Bug 14
-- Cookie path leak fixed (no path in response) — Bug 27
-- Stats: daily bars with zero-fill, separate status buckets — Bugs 39, 40
-- Logs count clamped to 1-1000 — Bug 21
-- Playlist: URL fallback chain, `uuid.uuid4()` for job_id — Bug 5, 15
-- Playlist DoS guard: `--playlist-end 50`, 10s timeout — Bug 22
-- SSE DB connection leak: `with closing(get_db())` — Bug 19
-- SSE hash: `hashlib.md5` over Python's built-in `hash()` — Bug 42
-- SSE N+1: single background poll thread → broadcast to subscribers — Bug 62
-- Config loaded once in `api_add_job` instead of twice — Bug 37
+| Change | Where | Before | After |
+|--------|-------|--------|-------|
+| Webhook via urllib (was curl subprocess) | `_fire_webhook()` | `subprocess.run(["curl",...])` | `urllib.request.Request` + `urlopen` |
+| Only fire webhook for completed/failed | `_fire_webhook()` call site | fired on every status change | guarded: `if job.status in ("completed","failed")` |
+| Cancelled guard after `proc.wait()` | `run_download()` after wait | always continued to post-process | `if job.status == "cancelled": return` early |
+| `rglob` fallback for filename | `run_download()` output detection | only checked one pattern | tried pattern dirs first, then `rglob("*")` across all output dirs |
+| UTC timezone everywhere | `DownloadJob` timestamps | `datetime.now()` (naive) | `datetime.now(timezone.utc)` |
+| `started_at` preserved from DB | `run_download()` | overwrote `started_at` on every progress | reads `row["started_at"]` from DB, only sets if None |
+| `completed_at` preserved similarly | `save_job()` | always set to now | set only if not already in DB row |
+| Info command has no `--format` | `_get_info()` | `yt-dlp --format ... --dump-json URL` | `yt-dlp --dump-json URL` (no format filter) |
+| Progress template: `filepath` not `filename` | `progress_template` | `%(info.filename)s` | `%(info.filepath)s` |
+| NA guard in progress template | template string | missing default | `%(info.filepath)sNA` so yt-dlp uses "NA" when path not yet known |
+| Removed dead path mangle | `_fire_webhook()` job dict | `path.replace("/", "⧸")` | removed |
+| Added `uuid` import | top of file | absent | `import uuid` |
+| ENV propagation for PhantomJS | `subprocess.run`/`Popen` calls | `env=None` | `env={**os.environ, "OPENSSL_CONF": os.environ.get("OPENSSL_CONF", "/dev/null")}` |
 
-### Phase 3 — style.css
-- Responsive nav collapse at 768px (flex-wrap, hidden conn-text) — Bug 59
+### `src/app.py` (Phase 2)
 
-### Phase 4 — dashboard.js
-- `loadMore()` pagination button — Bug 54
-- Failed card: "View logs →" link instead of entire card clickable — Bug 61
+| Change | Where | Before | After |
+|--------|-------|--------|-------|
+| Constant-time auth | `require_auth()` | `if auth != f"Bearer {API_KEY}"` | `if not hmac.compare_digest(auth, expected)` |
+| Version from `_version.py` | `/api/info` + startup log | `"version": "1.1"`, `v1.0` in log | `__version__` imported from `_version` |
+| Pagination on `/api/queue` | `api_queue()` route | `LIMIT 200` hardcoded | reads `limit`/`offset` from query params (clamped 1-1000/0+) |
+| Settings validation | `api_update_settings()` | blindly did `cfg.update(updates)` | checks each key against `ALLOWED_SETTINGS` dict, validates types/ranges |
+| Deque resize on settings change | `api_update_settings()` | just set `ring_log.max_lines` | creates new `deque(maxlen=N)`, copies old entries under lock |
+| Open path restricted | `api_open_path()` | accepted any path | checks resolved path starts with `download_dir` |
+| `bulk_retry` only failed/cancelled | `api_bulk_retry()` | `WHERE job_id IN (...)` | `WHERE ... AND status IN ('failed','cancelled')` |
+| Cookie path not leaked | upload response | returned `{"path": str(COOKIES_PATH)}` | returns `{"ok": True}` only |
+| Stats daily bars zero-fill | `/api/stats` | used whatever DB returned | iterates last 7 days, fills 0 for missing days |
+| Stats separate status buckets | `/api/stats` | 3 buckets (completed/failed/other) | 5 buckets: completed/failed/cancelled/active-queued/other |
+| Logs count clamped | `api_logs()` | `int(request.args.get("count", 100))` unconstr. | `max(1, min(count, 1000))` |
+| Playlist URL fallback chain | `api_add_job()` | only used YouTube construct | tries `entry.get("url")` → `webpage_url` → `original_url` → construct |
+| Playlist job_id uses uuid | `api_add_job()` playlist loop | `f"job_{time}_{eid}"` | `f"job_{time}_{uuid.uuid4().hex[:8]}"` |
+| Playlist DoS: --playlist-end 50 | subprocess args | `--flat-playlist --dump-json --no-download` | added `--playlist-end 50` |
+| Playlist DoS: 10s timeout | subprocess call | `timeout=30` | `timeout=10` |
+| SSE DB leak fixed | `stream_queue()` | `db = get_db()` / `db.close()` separate | `with closing(get_db()) as db:` |
+| SSE hash fixed | `stream_queue()` | `str(hash(data))` | `hashlib.md5(data.encode()).hexdigest()` |
+| SSE N+1 fix | whole SSE block | each client ran its own DB poll loop | single `QueueBroadcaster` background thread → subscribers |
+| Config loaded once in api_add_job | `api_add_job()` | loaded config in route + again in playlist block | loaded once at top into `cfg` variable |
+| Added imports | top of file | `hashlib`, `uuid`, `hmac`, `closing` missing | all added |
+| Startup log uses version | `__main__` | `v1.0` | `v{__version__}` |
 
-### Phase 5 — templates + theme.js
-- **FOUC fix**: inline `<script>` in `<head>` before CSS loads — Bug 50
-- **Theme toggle**: reverts on fetch error — Bug 60
-- **Stats empty state**: "No downloads yet" message — Bug 55
-- **"Clear Display"** renamed to **"Clear View"** — Bug 58
-- **Settings**: client-side validation, button disables during save — Bugs 56, 57
-- **"Reset Stats"** renamed to **"Clear History"** with explicit confirm — Bug 66
+### `src/_version.py` (new file)
 
-### Phase 6 — Extension
-- `info.linkUrl || info.srcUrl || info.pageUrl` for video/audio context — Bug 7
-- `chrome.storage.local` + `__initialized` flag to prevent notification storm — Bug 8
-- `apiFetch()` helper with auth headers; API key input in popup — Bug 9
-- Alarm `periodInMinutes` changed to 0.5 (Chrome minimum) — Bug 10
-- `sourceTabs` tracking for toast on originating tab — Bug 33
-- Removed `<all_urls>` and YouTube host_permissions — Bug 34
+```
+__version__ = "1.1.0"
+```
 
-### Phase 7 — Docker/Install/README
-- Dockerfile: non-root `ytdl` user, `COPY --chown`, `USER`, `HOME` — Bug 26
-- docker-compose.yml: volume path → `/home/ytdl/.local/share/yt-dl` — Bug 26
-- handler.sh: `/health` (not `/api/health`), `curl -sf` flag — Bug 17
-- install.sh: `command -v python3`, removed stale dbus check — Bugs 30, 31
-- install.fish: `notifications.py` ref → "handled by browser extension" — Bug 32
-- README.md: fixed `--cookies-from-browser` example — Bug 41
+### `src/static/style.css` (Phase 3)
+
+| Change | Where | Before | After |
+|--------|-------|--------|-------|
+| Responsive nav | after `.theme-toggle` block | no mobile handling | `@media (max-width: 768px)` with flex-wrap, hidden conn-text |
+
+### `src/static/dashboard.js` (Phase 4)
+
+| Change | Where | Before | After |
+|--------|-------|--------|-------|
+| Pagination vars | top of file | absent | `let currentOffset = 0; const PAGE_SIZE = 200;` + `loadMore()` function |
+| Load more button visibility | `renderDashboard()` | no button | shows "Load more" button when `jobs.length >= PAGE_SIZE` |
+| Failed card footer | `buildFailedCard()` | just "Retry" button | "Retry" + "View logs →" link |
+
+### `src/static/theme.js` (Phase 5)
+
+| Change | Where | Before | After |
+|--------|-------|--------|-------|
+| FET error handling | `toggleTheme()` | `fetch(...).catch(()=>{})` empty | catches error, reverts `data-theme` and localStorage to previous |
+| Removed duplicate hydrate | last 2 lines | `const savedTheme = ...; if (savedTheme) setAttribute` | removed (now handled by inline `<script>` in base.html) |
+
+### `src/static/stats.js` (Phase 5)
+
+| Change | Where | Before | After |
+|--------|-------|--------|-------|
+| Empty state check | `renderStats()` | always renders cards | if `total_downloaded === 0`, hides content, shows empty-state div |
+| Clear History confirm text | button listener | `"Reset all statistics?"` | `"Delete ALL download records from the database?..."` |
+
+### `src/templates/base.html` (Phase 5)
+
+| Change | Where | Before | After |
+|--------|-------|--------|-------|
+| FOUC prevention | `<head>` | no inline script | inline `<script>` reads `localStorage` and sets `data-theme` before CSS loads |
+
+### `src/templates/dashboard.html` (Phase 4)
+
+| Change | Where | Before | After |
+|--------|-------|--------|-------|
+| Load more button | after `#sections` | absent | `<button id="load-more" onclick="loadMore()" style="display:none">` |
+
+### `src/templates/settings.html` (Phase 5)
+
+| Change | Where | Before | After |
+|--------|-------|--------|-------|
+| Client-side validation | `saveSettings()` | no validation, blind fetch | validates `concurrent_limit` (1-20) and `playlist_limit` (1-1000), shows toast on failure |
+| Button disable during save | `saveSettings()` | button always enabled | `btn.disabled = true; btn.textContent = "Saving..."` → finally block restores |
+| Response error handling | fetch chain | `.then(r=>r.json()).then(d=>showToast(...))` | checks `r.ok`, throws on error, catches to show error toast |
+
+### `src/templates/stats.html` (Phase 5)
+
+| Change | Where | Before | After |
+|--------|-------|--------|-------|
+| Empty state div | after header | absent | `<div id="stats-empty">No downloads yet</div>` |
+| Content wrapper | around grid cards | bare | `<div id="stats-content">` |
+| Button text | reset button | "Reset Stats" | "Clear History" |
+
+### `src/templates/logs.html` (Phase 5)
+
+| Change | Where | Before | After |
+|--------|-------|--------|-------|
+| Button label | clear button | "Clear Display" | "Clear View" |
+
+### `extension/background.js` (Phase 6)
+
+| Change | Where | Before | After |
+|--------|-------|--------|-------|
+| auth helper | new | absent | `getAuthHeaders()` reads `apiKey` from storage → returns `Authorization` header |
+| apiFetch helper | new | absent | wraps `fetch()` with auth headers injected |
+| persist prevJobs | startup + poll | `let prevJobs = {}` in memory | `loadPrevJobs()` / `savePrevJobs()` using `chrome.storage.local` |
+| `__initialized` flag | `processJobs()` | absent | first poll after SW restart just hydrates, doesn't fire toasts |
+| sourceTab tracking | context menu handler | absent | `sourceTabs[body.job_id] = tab.id` on add |
+| toast on source tab | `showNotification()` | always active tab | checks `sourceTabs[job.id]` first, falls back to active tab |
+| video/audio context | menu click handler | `info.linkUrl` only | `info.linkUrl || info.srcUrl || info.pageUrl` |
+| alarm period | `chrome.alarms.create("poll")` | `periodInMinutes: 0.1` | `periodInMinutes: 0.5` |
+| Retry via apiFetch | notification button listener | `fetch(API_URL + ...)` | `apiFetch('/api/jobs/.../retry', ...)` |
+| All fetch calls → apiFetch | heartbeat, poll, add, retry | direct `fetch(...)` | `apiFetch(...)` |
+
+### `extension/popup.js` (Phase 6)
+
+| Change | Where | Before | After |
+|--------|-------|--------|-------|
+| API key input handler | `DOMContentLoaded` | absent | reads/writes `apiKey` from `chrome.storage.local` on input |
+
+### `extension/popup.html` (Phase 6)
+
+| Change | Where | Before | After |
+|--------|-------|--------|-------|
+| API key input | after audio row | absent | password input bound to `apiKey` storage |
+
+### `extension/manifest.json` (Phase 6)
+
+| Change | Where | Before | After |
+|--------|-------|--------|-------|
+| host_permissions | manifest | `http://127.0.0.1:5000/*`, `*://*.youtube.com/*`, `*://youtu.be/*`, `<all_urls>` | `http://127.0.0.1:5000/*`, `http://localhost:5000/*` |
+
+### `Dockerfile` (Phase 7)
+
+| Change | Where | Before | After |
+|--------|-------|--------|-------|
+| Non-root user | after pip install | absent | `RUN useradd -m -u 1000 ytdl` |
+| COPY --chown | COPY | `COPY src/ ./src/` | `COPY --chown=ytdl:ytdl src/ ./src/` |
+| USER directive | before EXPOSE | absent | `USER ytdl` |
+| HOME env | ENV block | absent | `ENV HOME=/home/ytdl` |
+
+### `docker-compose.yml` (Phase 7)
+
+| Change | Where | Before | After |
+|--------|-------|--------|-------|
+| Volume path | volumes | `/root/.local/share/yt-dl` | `/home/ytdl/.local/share/yt-dl` |
+
+### `yt-dl-handler.sh` (Phase 7)
+
+| Change | Where | Before | After |
+|--------|-------|--------|-------|
+| Health endpoint + curl flag | health check | `curl -s http://.../api/health` | `curl -sf http://.../health` |
+
+### `install.sh` (Phase 7)
+
+| Change | Where | Before | After |
+|--------|-------|--------|-------|
+| Python path | service ExecStart | `/usr/bin/python3` | `$(command -v python3)` (dynamic) |
+| Removed dbus check | dependency check | `if ! python3 -c "import dbus"...` | deleted entire block |
+| Removed dbus-python from hint | install hint text | `pip install --user flask dbus-python` | `pip install --user flask` |
+
+### `install.fish` (Phase 7)
+
+| Change | Where | Before | After |
+|--------|-------|--------|-------|
+| Notification ref | summary output | `echo "  Notifications: .../notifications.py"` | `echo "  Notifications: handled by browser extension"` |
+
+### `README.md` (Phase 7)
+
+| Change | Where | Before | After |
+|--------|-------|--------|-------|
+| Cookie export command | cookie section | `yt-dlp --cookies-from-browser chrome --cookies ...` | two options: `chrome:Default` with correct invocation, or browser extension approach |
 

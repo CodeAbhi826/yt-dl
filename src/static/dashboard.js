@@ -389,6 +389,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
   const clearBtn = document.getElementById("clear-completed");
   if (clearBtn) {
+    clearBtn.addEventListener("click", function() {
       const completed = prevJobs.filter(j => j.status === 'completed');
       if (!completed.length) return;
       if (!confirm("Delete " + completed.length + " completed download(s) AND their files from disk?")) return;

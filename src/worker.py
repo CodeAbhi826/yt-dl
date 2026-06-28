@@ -240,7 +240,19 @@ def run_download(job, download_dir):
     if COOKIES_PATH.exists():
         download_cmd.extend(["--cookies", str(COOKIES_PATH)])
 
-    download_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        download_dir.mkdir(parents=True, exist_ok=True)
+    except (PermissionError, OSError) as e:
+        logger.error(f"Cannot create download directory {download_dir}: {e}")
+        job.status = "failed"
+        job.error_message = f"Cannot create download directory: {e}"
+        job.completed_at = datetime.now(timezone.utc).isoformat()
+        save_job(job)
+        with queue_lock:
+            if job.job_id in active_jobs:
+                del active_jobs[job.job_id]
+        _fire_webhook(job)
+        return
     if not job.started_at:
         job.started_at = datetime.now(timezone.utc).isoformat()
     logger.info(f"Starting download: {job.job_id} -> {job.title}")
@@ -366,24 +378,27 @@ def sync_active_downloads_with_toggle():
     enabled = cfg.get("downloads_enabled", True)
     with queue_lock:
         for job in list(active_jobs.values()):
-            if enabled and job.status == "paused" and getattr(job, '_paused_by_toggle', False):
-                try:
+            if not job.proc or job.proc.poll() is not None:
+                continue
+            try:
+                if enabled and job.status == "paused" and getattr(job, '_paused_by_toggle', False):
                     os.killpg(os.getpgid(job.proc.pid), signal.SIGCONT)
                     job.status = "downloading"
                     job._paused_by_toggle = False
                     save_job(job)
                     logger.info(f"Resumed by toggle: {job.job_id}")
-                except (ProcessLookupError, PermissionError):
-                    pass
-            elif not enabled and job.status == "downloading":
-                try:
+                elif not enabled and job.status == "downloading":
                     os.killpg(os.getpgid(job.proc.pid), signal.SIGSTOP)
                     job.status = "paused"
                     job._paused_by_toggle = True
                     save_job(job)
                     logger.info(f"Paused by toggle: {job.job_id}")
-                except (ProcessLookupError, PermissionError):
-                    pass
+            except (ProcessLookupError, PermissionError, AttributeError, OSError) as e:
+                logger.warning(f"Toggle sync skipped {job.job_id}: {e}")
+                if job.proc and job.proc.poll() is not None:
+                    job.status = "failed"
+                    job.error_message = f"Process died: {e}"
+                    save_job(job)
 
 
 def cancel_job(job_id: str) -> bool:

@@ -285,9 +285,8 @@ def api_resume_job(job_id):
 @app.route("/api/jobs/pause-all", methods=["POST"])
 @require_auth
 def api_pause_all():
-    """Pause every active (downloading) job. Inline the logic to avoid
-    re-acquiring queue_lock (which would deadlock since pause_job also
-    tries to acquire it)."""
+    """Pause all active downloads AND queued jobs. Queued jobs are marked
+    as 'paused' in the DB so the worker won't pick them up."""
     paused = 0
     with queue_lock:
         for job in list(active_jobs.values()):
@@ -301,8 +300,18 @@ def api_pause_all():
                 save_job(job)
                 paused += 1
                 logger.info(f"Paused job: {job.job_id}")
-            except (ProcessLookupError, PermissionError) as e:
+            except (ProcessLookupError, PermissionError, AttributeError, OSError) as e:
                 logger.warning(f"Failed to pause {job.job_id}: {e}")
+    db = get_db()
+    try:
+        c = db.execute("UPDATE downloads SET status='paused' WHERE status='queued'")
+        db.commit()
+        queued_paused = c.rowcount
+        paused += queued_paused
+        if queued_paused:
+            logger.info(f"Marked {queued_paused} queued jobs as paused")
+    finally:
+        db.close()
     logger.info(f"Paused {paused} jobs total")
     return jsonify({"paused": paused})
 
@@ -323,7 +332,7 @@ def api_resume_all():
                 save_job(job)
                 resumed += 1
                 logger.info(f"Resumed job: {job.job_id}")
-            except (ProcessLookupError, PermissionError) as e:
+            except (ProcessLookupError, PermissionError, AttributeError, OSError) as e:
                 logger.warning(f"Failed to resume {job.job_id}: {e}")
     logger.info(f"Resumed {resumed} jobs total")
     return jsonify({"resumed": resumed})

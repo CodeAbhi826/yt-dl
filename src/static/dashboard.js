@@ -216,17 +216,12 @@ function updateFooter(jobs) {
   if (left) left.textContent = '⬇ ' + active + ' active • ' + queued + ' queued' + (paused ? ' • ' + paused + ' paused' : '');
 
   const pauseBtn = document.getElementById("pause-all");
+  const resumeBtn = document.getElementById("resume-all");
   if (pauseBtn) {
-    if (active > 0) {
-      pauseBtn.textContent = 'Pause all';
-      pauseBtn.classList.add('footer-action-danger');
-    } else if (paused > 0) {
-      pauseBtn.textContent = 'Resume all';
-      pauseBtn.classList.remove('footer-action-danger');
-    } else {
-      pauseBtn.textContent = 'Pause all';
-      pauseBtn.classList.add('footer-action-danger');
-    }
+    pauseBtn.style.display = (active > 0 || queued > 0) ? '' : 'none';
+  }
+  if (resumeBtn) {
+    resumeBtn.style.display = (paused > 0) ? '' : 'none';
   }
 }
 
@@ -421,21 +416,26 @@ document.addEventListener("DOMContentLoaded", function() {
   if (pauseBtn) {
     pauseBtn.addEventListener("click", function() {
       const dl = prevJobs.filter(j => j.status === 'downloading');
-      const paused = prevJobs.filter(j => j.status === 'paused');
+      const queued = prevJobs.filter(j => j.status === 'queued');
+      if (dl.length === 0 && queued.length === 0) return;
+      if (!confirm("Pause " + dl.length + " active + " + queued.length + " queued download(s)?")) return;
+      fetch("/api/jobs/pause-all", {method:"POST"})
+        .then(r => r.json())
+        .then(d => showToast("Paused " + d.paused + " jobs"))
+        .catch(() => showToast("Pause failed", "error"));
+    });
+  }
 
-      if (dl.length > 0) {
-        if (!confirm("Pause " + dl.length + " active download(s)?")) return;
-        fetch("/api/jobs/pause-all", {method:"POST"})
-          .then(r => r.json())
-          .then(d => showToast("Paused " + d.paused + " jobs"))
-          .catch(() => showToast("Pause failed", "error"));
-      } else if (paused.length > 0) {
-        if (!confirm("Resume " + paused.length + " paused download(s)?")) return;
-        fetch("/api/jobs/resume-all", {method:"POST"})
-          .then(r => r.json())
-          .then(d => showToast("Resumed " + d.resumed + " jobs"))
-          .catch(() => showToast("Resume failed", "error"));
-      }
+  const resumeBtn = document.getElementById("resume-all");
+  if (resumeBtn) {
+    resumeBtn.addEventListener("click", function() {
+      const paused = prevJobs.filter(j => j.status === 'paused');
+      if (!paused.length) return;
+      if (!confirm("Resume " + paused.length + " paused download(s)?")) return;
+      fetch("/api/jobs/resume-all", {method:"POST"})
+        .then(r => r.json())
+        .then(d => showToast("Resumed " + d.resumed + " jobs"))
+        .catch(() => showToast("Resume failed", "error"));
     });
   }
 });

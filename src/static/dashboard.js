@@ -130,19 +130,22 @@ function buildFailedCard(j) {
 }
 
 function buildPausedCard(j) {
-  const thumb = buildThumb(j, 'dl-thumb');
+  const thumb = buildThumb(j, 'q-thumb');
   const pct = j.progress || 0;
   const pauseReason = (!downloadsEnabled && j.status === 'paused')
     ? '⏸ Paused (master toggle)'
     : '⏸ Paused';
-  return '<div class="dl-card" data-id="' + escapeHtml(j.id) + '" style="opacity:0.6">'
-    + '<div class="dl-thumb-wrap">' + thumb + '</div>'
-    + '<div class="dl-body">'
-    + '<div><div class="dl-title" title="' + escapeHtml(j.title || '') + '">' + escapeHtml(j.title || j.url.split('/').pop() || 'Unknown') + '</div>'
-    + '<div class="dl-meta"><span class="dl-chip">' + pauseReason + '</span><span class="dl-chip">' + pct.toFixed(1) + '%</span></div></div>'
-    + '<div><div class="dl-progress"><div class="dl-progress-bar"><div class="dl-progress-fill" style="width:' + pct + '%"></div></div></div>'
-    + '<div class="dl-stats"><span>Paused at ' + pct.toFixed(1) + '%</span><span class="dl-cancel" onclick="resumeJob(\'' + escapeHtml(j.id) + '\')">Resume</span></div></div>'
-    + '</div></div>';
+  return '<div class="q-card paused" data-id="' + escapeHtml(j.id) + '" style="opacity:0.7">'
+    + '<div class="q-thumb-wrap">' + thumb + '</div>'
+    + '<div class="q-body">'
+    + '<div><div class="q-title" title="' + escapeHtml(j.title || '') + '">' + escapeHtml(j.title || j.url.split('/').pop() || 'Unknown') + '</div>'
+    + '<div style="margin-top:2px;"><span class="q-status" style="color:var(--orange);">' + pauseReason + '</span></div></div>'
+    + '<div class="q-meta">' + escapeHtml(j.quality) + ' • ' + pct.toFixed(1) + '%</div>'
+    + '<div class="q-bar" style="background:var(--orange); width:' + pct + '%; height:3px; border-radius:999px; margin-top:6px;"></div>'
+    + '<div class="q-bottom" style="justify-content:space-between;">'
+    + '<span style="font-size:12px; color:var(--text-muted);">Paused at ' + pct.toFixed(1) + '%</span>'
+    + '<span class="q-retry" onclick="resumeJob(\'' + escapeHtml(j.id) + '\')" style="color:var(--blue);">Resume</span>'
+    + '</div></div></div>';
 }
 
 function resumeJob(id) {
@@ -195,7 +198,7 @@ function renderDashboard(jobs) {
     html += buildSection('DOWNLOADING', 'grid-2', downloading.map(buildDownloadingCard).join(''));
   }
   if (paused.length) {
-    html += buildSection('PAUSED', 'grid-2', paused.map(buildPausedCard).join(''));
+    html += buildSection('PAUSED', 'grid-3', paused.map(buildPausedCard).join(''));
   }
   if (queued.length) {
     html += buildSection('QUEUED', 'grid-3', queued.map((j, i) => buildQueueCard(j, i + 1)).join(''));

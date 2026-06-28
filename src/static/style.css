@@ -114,6 +114,9 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 .q-card.failed .q-retry { color: var(--blue); font-size: 14px; font-weight: 500; cursor: pointer; }
 .q-card.failed .q-retry:hover { color: #5cb8ff; }
 
+/* ── Paused Card Variant ── */
+.q-card.paused { border-left: 3px solid var(--orange); }
+
 /* ── Footer ── */
 .page-footer { display: flex; justify-content: space-between; align-items: center; height: 52px; border-top: 1px solid rgba(255,255,255,.05); margin-top: 8px; }
 .footer-left { font-size: 14px; color: var(--text-secondary); }

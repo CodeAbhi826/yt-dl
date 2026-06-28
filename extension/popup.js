@@ -58,4 +58,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       await chrome.storage.local.set({ apiKey: keyInput.value });
     });
   }
+
+  const nativeCheckbox = document.getElementById('native-notifications');
+  if (nativeCheckbox) {
+    const result = await chrome.storage.local.get(['nativeNotifications']);
+    nativeCheckbox.checked = result.nativeNotifications !== false;
+    nativeCheckbox.addEventListener('change', async () => {
+      await chrome.storage.local.set({ nativeNotifications: nativeCheckbox.checked });
+    });
+  }
 });

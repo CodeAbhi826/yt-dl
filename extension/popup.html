@@ -222,6 +222,19 @@ body {
   <!-- API Key -->
   <div class="label">API Key (optional)</div>
   <input type="password" id="apiKey" class="api-key-input" placeholder="YTDL_API_KEY" style="width:100%;padding:8px 12px;border-radius:10px;border:1px solid var(--divider);background:var(--surface);color:var(--text);font-family:inherit;font-size:12px;outline:none;">
+
+  <!-- Divider -->
+  <div class="divider"></div>
+
+  <!-- Notifications -->
+  <div class="label">Notifications</div>
+  <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-secondary); cursor:pointer; padding:4px 0;">
+    <input type="checkbox" id="native-notifications" style="margin:0;">
+    Use OS notifications (Brave/Chrome popup)
+  </label>
+  <p style="font-size:10px; color:var(--text-muted); margin-top:4px;">
+    When OFF, only in-page toasts are shown.
+  </p>
 </div>
 
 <script src="popup.js"></script>

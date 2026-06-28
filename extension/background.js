@@ -133,16 +133,35 @@ function showNotification(type, job) {
       target: { tabId: targetTabId },
       func: injectToast,
       args: [data]
-    }).catch(() => fallbackNative(type, job, titles[type] || 'yt-dl'));
+    }).catch(() => {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs.length === 0) {
+          fallbackNative(type, job, titles[type] || 'yt-dl');
+        } else {
+          chrome.scripting.executeScript({
+            target: { tabId: tabs[0].id },
+            func: injectToast,
+            args: [data]
+          }).catch(() => fallbackNative(type, job, titles[type] || 'yt-dl'));
+        }
+      });
+    });
     delete sourceTabs[job.id];
     return;
   }
 
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    if (tabs.length === 0) {
+      fallbackNative(type, job, titles[type] || 'yt-dl');
+      return;
+    }
     let succeeded = 0;
     let total = tabs.length;
-    if (total === 0) { fallbackNative(type, job, titles[type] || 'yt-dl'); return; }
     for (const tab of tabs) {
+      if (tab.url && (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://') || tab.url.startsWith('about:'))) {
+        total--;
+        continue;
+      }
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
         func: injectToast,
@@ -150,10 +169,13 @@ function showNotification(type, job) {
       }).then(() => { succeeded++; })
         .catch(() => {})
         .finally(() => {
-          if (--total === 0 && succeeded === 0) {
+          if (total > 0 && --total === 0 && succeeded === 0) {
             fallbackNative(type, job, titles[type] || 'yt-dl');
           }
         });
+    }
+    if (total === 0) {
+      fallbackNative(type, job, titles[type] || 'yt-dl');
     }
   });
 }
@@ -287,7 +309,9 @@ function injectToast(data) {
   }
 }
 
-function fallbackNative(type, job, title) {
+async function fallbackNative(type, job, title) {
+  const { nativeNotifications } = await chrome.storage.local.get(['nativeNotifications']);
+  if (nativeNotifications === false) return;
   let message = (job.title || job.video_id || 'Unknown');
   if (type === 'completed') {
     const size = job.file_size ? formatBytes(job.file_size) : '';
@@ -370,11 +394,35 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       }]
     }).catch(() => {});
   } catch (err) {
-    chrome.notifications.create({
-      type: 'basic',
-      iconUrl: 'icons/icon48.png',
-      title: 'yt-dl Error',
-      message: err.message || 'Daemon not running'
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs.length === 0) {
+        chrome.notifications.create({
+          type: 'basic',
+          iconUrl: 'icons/icon48.png',
+          title: 'yt-dl Error',
+          message: err.message || 'Daemon not running'
+        });
+        return;
+      }
+      chrome.scripting.executeScript({
+        target: { tabId: tabs[0].id },
+        func: injectToast,
+        args: [{
+          type: 'failed',
+          title: 'yt-dl Error',
+          videoTitle: err.message || 'Daemon not running',
+          thumb: '',
+          jobId: '',
+          meta: 'Check that the daemon is running on localhost:5000'
+        }]
+      }).catch(() => {
+        chrome.notifications.create({
+          type: 'basic',
+          iconUrl: 'icons/icon48.png',
+          title: 'yt-dl Error',
+          message: err.message || 'Daemon not running'
+        });
+      });
     });
   }
 });

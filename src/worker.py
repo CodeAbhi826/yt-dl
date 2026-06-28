@@ -69,6 +69,9 @@ class DownloadJob:
         self.eta = row["eta"]
         self.file_path = row["file_path"]
         self.file_size = row["file_size"] or 0
+        self.thumbnail = row["thumbnail"] if "thumbnail" in row.keys() else ""
+        self.total_bytes = row["total_bytes"] if "total_bytes" in row.keys() else 0
+        self.downloaded_bytes = row["downloaded_bytes"] if "downloaded_bytes" in row.keys() else 0
         self.error_message = row["error_message"]
         self.started_at = row["started_at"]
         self.completed_at = row["completed_at"]
@@ -85,11 +88,14 @@ def save_job(job):
         db.execute("""
             UPDATE downloads SET
                 title=?, status=?, progress=?, speed=?, eta=?,
-                file_path=?, file_size=?, error_message=?,
+                file_path=?, file_size=?, thumbnail=?, total_bytes=?,
+                downloaded_bytes=?, error_message=?,
                 started_at=?, completed_at=?
             WHERE job_id=?
         """, (job.title, job.status, job.progress, job.speed, job.eta,
-              job.file_path, job.file_size, job.error_message,
+              job.file_path, job.file_size, job.thumbnail,
+              job.total_bytes, job.downloaded_bytes,
+              job.error_message,
               job.started_at, job.completed_at,
               job.job_id))
         db.commit()
@@ -155,6 +161,25 @@ def _process_queue():
             ).start()
 
 
+def parse_bytes(s):
+    """Parse byte-size strings like '142.6MiB' → bytes."""
+    if not s or s == "NA":
+        return 0
+    s = s.strip()
+    multipliers = {"KiB": 1024, "MiB": 1024**2, "GiB": 1024**3, "TiB": 1024**4,
+                   "KB": 1000, "MB": 1000**2, "GB": 1000**3, "TB": 1000**4}
+    for unit, mult in multipliers.items():
+        if s.endswith(unit):
+            try:
+                return int(float(s[:-len(unit)].strip()) * mult)
+            except ValueError:
+                return 0
+    try:
+        return int(float(s))
+    except ValueError:
+        return 0
+
+
 def run_download(job, download_dir):
     cfg = load_config()
     format_str = QUALITY_MAP.get(job.quality, QUALITY_MAP["720p"])
@@ -171,6 +196,7 @@ def run_download(job, download_dir):
         if result.returncode == 0 and result.stdout:
             info = json.loads(result.stdout.strip().split("\n")[0])
             job.title = info.get("title", "Unknown")[:80]
+            job.thumbnail = info.get("thumbnail") or ""
             save_job(job)
     except Exception as e:
         logger.warning(f"Info extraction failed: {e}")
@@ -198,7 +224,9 @@ def run_download(job, download_dir):
         '{"percent":"%(progress._percent_str)s",'
         '"speed":"%(progress._speed_str)s",'
         '"eta":"%(progress._eta_str)s",'
-        '"filepath":"%(info.filepath)s"}'
+        '"filepath":"%(info.filepath)s",'
+        '"total_bytes":"%(progress._total_bytes_str)s",'
+        '"downloaded_bytes":"%(progress._downloaded_bytes_str)s"}'
     )
 
     download_cmd.extend([
@@ -242,6 +270,13 @@ def run_download(job, download_dir):
                     job.progress = float(percent_str.rstrip("%"))
                     job.speed = data.get("speed", "")
                     job.eta = data.get("eta", "")
+
+                    total_bytes_str = data.get("total_bytes", "")
+                    downloaded_bytes_str = data.get("downloaded_bytes", "")
+                    if total_bytes_str:
+                        job.total_bytes = parse_bytes(total_bytes_str)
+                    if downloaded_bytes_str:
+                        job.downloaded_bytes = parse_bytes(downloaded_bytes_str)
 
                     filepath = data.get("filepath", "")
                     if filepath and filepath != "NA":
@@ -322,6 +357,33 @@ def run_download(job, download_dir):
 
         _fire_webhook(job)
         process_queue()
+
+
+def sync_active_downloads_with_toggle():
+    """Called when the master toggle changes. Pauses all active downloads
+    when toggle goes OFF, resumes them when toggle goes back ON."""
+    cfg = load_config()
+    enabled = cfg.get("downloads_enabled", True)
+    with queue_lock:
+        for job in list(active_jobs.values()):
+            if enabled and job.status == "paused" and getattr(job, '_paused_by_toggle', False):
+                try:
+                    os.killpg(os.getpgid(job.proc.pid), signal.SIGCONT)
+                    job.status = "downloading"
+                    job._paused_by_toggle = False
+                    save_job(job)
+                    logger.info(f"Resumed by toggle: {job.job_id}")
+                except (ProcessLookupError, PermissionError):
+                    pass
+            elif not enabled and job.status == "downloading":
+                try:
+                    os.killpg(os.getpgid(job.proc.pid), signal.SIGSTOP)
+                    job.status = "paused"
+                    job._paused_by_toggle = True
+                    save_job(job)
+                    logger.info(f"Paused by toggle: {job.job_id}")
+                except (ProcessLookupError, PermissionError):
+                    pass
 
 
 def cancel_job(job_id: str) -> bool:

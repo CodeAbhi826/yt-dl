@@ -32,6 +32,7 @@ DEFAULT_CONFIG = {
     "max_log_lines": 500,
     "webhook_url": "",
     "downloads_enabled": True,
+    "duplicate_detection": "strict",
 }
 
 QUALITY_MAP = {
@@ -68,6 +69,9 @@ def init_db():
             eta TEXT,
             file_path TEXT,
             file_size INTEGER DEFAULT 0,
+            thumbnail TEXT,
+            total_bytes INTEGER DEFAULT 0,
+            downloaded_bytes INTEGER DEFAULT 0,
             error_message TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             started_at TIMESTAMP,
@@ -84,6 +88,9 @@ def init_db():
         'video_id': 'TEXT',
         'title': 'TEXT',
         'file_size': 'INTEGER DEFAULT 0',
+        'thumbnail': 'TEXT',
+        'total_bytes': 'INTEGER DEFAULT 0',
+        'downloaded_bytes': 'INTEGER DEFAULT 0',
         'retry_count': 'INTEGER DEFAULT 0',
         'error_message': 'TEXT',
         'started_at': 'TIMESTAMP',
@@ -145,6 +152,9 @@ def job_to_dict(row) -> dict:
         "eta": row["eta"],
         "file_path": row["file_path"],
         "file_size": row["file_size"] or 0,
+        "thumbnail": row["thumbnail"] or "",
+        "total_bytes": row["total_bytes"] or 0,
+        "downloaded_bytes": row["downloaded_bytes"] or 0,
         "created_at": row["created_at"],
         "started_at": row["started_at"],
         "completed_at": row["completed_at"],

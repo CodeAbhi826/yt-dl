@@ -66,6 +66,18 @@ Uses yt-dlp output template. Example: <code>%(channel)s/%(title)s.%(ext)s</code>
 </div>
 </div>
 <div class="card">
+<div class="card-title">Duplicate Detection</div>
+<div class="form-group">
+<label class="form-label">Duplicate Detection</label>
+<select class="form-input" id="duplicate_detection">
+<option value="strict" {% if duplicate_detection == "strict" %}selected{% endif %}>Strict (any status — recommended)</option>
+<option value="lenient" {% if duplicate_detection == "lenient" %}selected{% endif %}>Lenient (only completed downloads)</option>
+<option value="off" {% if duplicate_detection == "off" %}selected{% endif %}>Off (allow duplicates)</option>
+</select>
+<p style="font-size:11px;color:var(--text-muted);margin-top:4px;">Prevents re-adding URLs that are already in your queue or history.</p>
+</div>
+</div>
+<div class="card">
 <div class="card-title">Webhook</div>
 <div class="form-group">
 <label class="form-label">Webhook URL</label>
@@ -148,6 +160,7 @@ function saveSettings() {
     embed_thumbnail: document.getElementById("embed_thumbnail").checked,
     embed_chapters: document.getElementById("embed_chapters").checked,
     embed_subs: document.getElementById("embed_subs").checked,
+    duplicate_detection: document.getElementById("duplicate_detection").value,
   };
   fetch("/api/settings", {method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(cfg)})
     .then(r => { if (!r.ok) return r.json().then(err => { throw new Error(err.error); }); return r.json(); })

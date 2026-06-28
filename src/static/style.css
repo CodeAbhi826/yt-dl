@@ -13,7 +13,7 @@
     --radius-sm: 8px;
     --radius-md: 12px;
     --radius-lg: 16px;
-    --font: 'Inter', system-ui, sans-serif;
+    --font: 'Product Sans', 'Google Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -22,7 +22,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 
 /* ── Nav / Header ── */
 .nav { display: flex; align-items: center; padding: 0 24px; height: 72px; border-bottom: 1px solid rgba(255,255,255,.05); background: var(--bg); position: sticky; top: 0; z-index: 100; }
-.nav-brand { font-size: 20px; font-weight: 700; color: white; text-decoration: none; }
+.nav-brand { font-size: 19px; font-weight: 500; color: white; text-decoration: none; }
 .nav-links { display: flex; gap: 2px; margin-left: 40px; flex: 1; }
 .nav-link { padding: 6px 14px; border-radius: var(--radius-sm); text-decoration: none; color: var(--text-muted); font-size: 13px; font-weight: 500; }
 .nav-link:hover, .nav-link.active { color: var(--text); background: rgba(255,255,255,.06); }
@@ -32,7 +32,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 
 /* ── Section ── */
 .section { margin-bottom: 32px; }
-.section-label { font-size: 12px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: #8a8a8a; margin-bottom: 12px; }
+.section-label { font-size: 11px; font-weight: 500; letter-spacing: 1.5px; text-transform: uppercase; color: #8a8a8a; margin-bottom: 12px; }
 
 /* ── Grids ── */
 /* Fixed layout: 2 cols for downloading, 3 cols for queued/recent/failed.
@@ -68,17 +68,20 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 .dl-duration { position: absolute; bottom: 8px; left: 8px; background: rgba(0,0,0,.8); padding: 4px 6px; font-size: 12px; border-radius: 6px; }
 
 .dl-body { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; }
-.dl-title { font-size: 16px; font-weight: 600; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.dl-title { font-size: 15px; font-weight: 500; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .dl-meta { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
-.dl-chip { background: #1c1c1c; padding: 4px 8px; border-radius: var(--radius-sm); font-size: 14px; color: var(--text-secondary); }
+.dl-chip { background: #1c1c1c; padding: 3px 8px; border-radius: var(--radius-sm); font-size: 12px; color: var(--text-secondary); font-weight: 400; }
 
 .dl-progress { margin-top: 8px; }
 .dl-progress-bar { height: 6px; background: #252525; border-radius: 999px; overflow: hidden; }
 .dl-progress-fill { height: 100%; background: var(--accent); border-radius: 999px; transition: width 1s linear; }
 .dl-stats { display: flex; justify-content: space-between; font-size: 13px; color: #b0b0b0; margin-top: 6px; }
-.dl-stats-pct { color: var(--accent-hover); font-weight: 600; }
+.dl-stats-pct { color: var(--accent-hover); font-weight: 500; }
 
-.dl-cancel { color: var(--accent-hover); font-size: 14px; font-weight: 500; cursor: pointer; align-self: flex-end; }
+.dl-actions { display: flex; gap: 12px; }
+.dl-pause { color: var(--blue); font-size: 14px; font-weight: 500; cursor: pointer; }
+.dl-pause:hover { color: #5cb8ff; }
+.dl-cancel { color: var(--accent-hover); font-size: 14px; font-weight: 500; cursor: pointer; }
 .dl-cancel:hover { color: #ff725f; }
 
 /* ── Queue / Recent / Failed Card ── */
@@ -91,7 +94,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 .q-duration { position: absolute; bottom: 8px; left: 8px; background: rgba(0,0,0,.8); padding: 4px 6px; font-size: 12px; border-radius: 6px; }
 
 .q-body { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; position: relative; }
-.q-title { font-size: 14px; font-weight: 600; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; padding-right: 36px; }
+.q-title { font-size: 13px; font-weight: 500; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; padding-right: 36px; }
 .q-position { position: absolute; top: 0; right: 0; background: #1d1d1d; padding: 4px 8px; border-radius: var(--radius-sm); font-size: 12px; color: #c0c0c0; }
 
 .q-meta { font-size: 13px; color: #9d9d9d; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

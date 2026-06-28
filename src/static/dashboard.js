@@ -5,11 +5,14 @@ function escapeHtml(t) {
   return d.innerHTML;
 }
 
-function thumbHtml(j, cls) {
-  if (!j.video_id || !/youtube\.com|youtu\.be/.test(j.url || '')) {
-    return '<div class="' + cls + '-placeholder">YT</div>';
+function buildThumb(j, cls) {
+  if (j.thumbnail) {
+    return '<img src="' + escapeHtml(j.thumbnail) + '" class="' + cls + '" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\';"><div class="' + cls + '-placeholder" style="display:none;">YT</div>';
   }
-  return '<img src="https://i.ytimg.com/vi/' + escapeHtml(j.video_id) + '/mqdefault.jpg" class="' + cls + '" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\';"><div class="' + cls + '-placeholder" style="display:none;">YT</div>';
+  if (j.video_id && j.url && /youtube\.com|youtu\.be/.test(j.url)) {
+    return '<img src="https://i.ytimg.com/vi/' + escapeHtml(j.video_id) + '/mqdefault.jpg" class="' + cls + '" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\';"><div class="' + cls + '-placeholder" style="display:none;">YT</div>';
+  }
+  return '<div class="' + cls + '-placeholder">YT</div>';
 }
 
 function formatBytes(b) {
@@ -47,14 +50,21 @@ function timeAgo(dateStr) {
 const $ = id => document.getElementById(id);
 
 function buildDownloadingCard(j) {
-  const thumb = thumbHtml(j, 'dl-thumb');
+  const thumb = buildThumb(j, 'dl-thumb');
   const pct = j.progress || 0;
   const speed = j.speed ? escapeHtml(j.speed) : '';
   const eta = formatEta(j.eta);
-  const sizeInfo = j.file_size ? formatBytes(j.file_size) : '';
   const statsParts = [];
   statsParts.push('<span class="dl-stats-pct">' + pct.toFixed(1) + '%</span>');
-  if (sizeInfo) statsParts.push(sizeInfo);
+
+  if (j.downloaded_bytes && j.total_bytes) {
+    statsParts.push(formatBytes(j.downloaded_bytes) + ' / ' + formatBytes(j.total_bytes));
+  } else if (j.downloaded_bytes) {
+    statsParts.push(formatBytes(j.downloaded_bytes));
+  } else if (j.file_size) {
+    statsParts.push(formatBytes(j.file_size));
+  }
+
   if (speed) statsParts.push(speed);
   if (eta) statsParts.push(eta + ' left');
   const statsStr = statsParts.join(' • ');
@@ -62,16 +72,19 @@ function buildDownloadingCard(j) {
   return '<div class="dl-card" data-id="' + escapeHtml(j.id) + '">'
     + '<div class="dl-thumb-wrap">' + thumb + '</div>'
     + '<div class="dl-body">'
-    + '<div><div class="dl-title" title="' + escapeHtml(j.title || '') + '">' + escapeHtml(j.title || j.video_id || 'Unknown') + '</div>'
+    + '<div><div class="dl-title" title="' + escapeHtml(j.title || '') + '">' + escapeHtml(j.title || j.url.split('/').pop() || 'Unknown') + '</div>'
     + '<div class="dl-meta"><span class="dl-chip">' + escapeHtml(j.quality) + '</span><span class="dl-chip">mp4</span></div></div>'
     + '<div>'
     + '<div class="dl-progress"><div class="dl-progress-bar"><div class="dl-progress-fill" style="width:' + pct + '%"></div></div></div>'
-    + '<div class="dl-stats"><span>' + statsStr + '</span><span class="dl-cancel" onclick="cancelJob(\'' + escapeHtml(j.id) + '\')">Cancel</span></div>'
+    + '<div class="dl-stats"><span>' + statsStr + '</span><span class="dl-actions">'
+    + '<span class="dl-pause" onclick="pauseJob(\'' + escapeHtml(j.id) + '\')">Pause</span>'
+    + '<span class="dl-cancel" onclick="cancelJob(\'' + escapeHtml(j.id) + '\')">Cancel</span>'
+    + '</span></div>'
     + '</div></div></div>';
 }
 
 function buildQueueCard(j, pos) {
-  const thumb = thumbHtml(j, 'q-thumb');
+  const thumb = buildThumb(j, 'q-thumb');
   const sizeInfo = j.file_size ? formatBytes(j.file_size) : '';
   const meta = [j.quality, 'mp4', sizeInfo, downloadsEnabled ? '' : '⏸ waiting for toggle'].filter(Boolean).join(' • ');
   const eta = formatEta(j.eta);
@@ -80,7 +93,7 @@ function buildQueueCard(j, pos) {
   return '<div class="q-card" data-id="' + escapeHtml(j.id) + '">'
     + '<div class="q-thumb-wrap">' + thumb + '</div>'
     + '<div class="q-body">'
-    + '<div><div class="q-title" title="' + escapeHtml(j.title || '') + '">' + escapeHtml(j.title || j.video_id || 'Unknown') + '</div>'
+    + '<div><div class="q-title" title="' + escapeHtml(j.title || '') + '">' + escapeHtml(j.title || j.url.split('/').pop() || 'Unknown') + '</div>'
     + '<div class="q-position">#' + pos + '</div></div>'
     + '<div class="q-meta">' + escapeHtml(meta) + '</div>'
     + '<div class="q-bottom">' + etaHtml + '<span class="q-cancel" onclick="cancelJob(\'' + escapeHtml(j.id) + '\')">Cancel</span></div>'
@@ -88,13 +101,13 @@ function buildQueueCard(j, pos) {
 }
 
 function buildRecentCard(j) {
-  const thumb = thumbHtml(j, 'q-thumb');
+  const thumb = buildThumb(j, 'q-thumb');
   const sizeInfo = j.file_size ? formatBytes(j.file_size) : '';
   const meta = [j.quality, 'mp4', sizeInfo, timeAgo(j.completed_at || j.created_at)].filter(Boolean).join(' • ');
   return '<div class="q-card completed" data-id="' + escapeHtml(j.id) + '">'
     + '<div class="q-thumb-wrap">' + thumb + '</div>'
     + '<div class="q-body">'
-    + '<div><div class="q-title" title="' + escapeHtml(j.title || '') + '">' + escapeHtml(j.title || j.video_id || 'Unknown') + '</div>'
+    + '<div><div class="q-title" title="' + escapeHtml(j.title || '') + '">' + escapeHtml(j.title || j.url.split('/').pop() || 'Unknown') + '</div>'
     + '<div style="margin-top:2px;"><span class="q-status">✓ COMPLETED</span></div></div>'
     + '<div class="q-meta">' + escapeHtml(meta) + '</div>'
     + '<div class="q-bar"></div>'
@@ -103,13 +116,13 @@ function buildRecentCard(j) {
 }
 
 function buildFailedCard(j) {
-  const thumb = thumbHtml(j, 'q-thumb');
+  const thumb = buildThumb(j, 'q-thumb');
   const errMsg = j.error_message || 'Unknown error';
   const meta = [j.quality, 'mp4', errMsg, timeAgo(j.created_at)].filter(Boolean).join(' • ');
   return '<div class="q-card failed" data-id="' + escapeHtml(j.id) + '">'
     + '<div class="q-thumb-wrap">' + thumb + '</div>'
     + '<div class="q-body">'
-    + '<div><div class="q-title" title="' + escapeHtml(j.title || '') + '">' + escapeHtml(j.title || j.video_id || 'Unknown') + '</div>'
+    + '<div><div class="q-title" title="' + escapeHtml(j.title || '') + '">' + escapeHtml(j.title || j.url.split('/').pop() || 'Unknown') + '</div>'
     + '<div style="margin-top:2px;"><span class="q-status">✕ FAILED</span></div></div>'
     + '<div class="q-meta">' + escapeHtml(meta) + '</div>'
     + '<div class="q-bottom" style="justify-content:space-between;"><span class="q-retry" onclick="retryJob(\'' + escapeHtml(j.id) + '\')">Retry</span><span class="q-cancel" style="cursor:pointer;" onclick="window.location.href=\'/logs\'">View logs →</span></div>'
@@ -117,13 +130,16 @@ function buildFailedCard(j) {
 }
 
 function buildPausedCard(j) {
-  const thumb = thumbHtml(j, 'dl-thumb');
+  const thumb = buildThumb(j, 'dl-thumb');
   const pct = j.progress || 0;
+  const pauseReason = (!downloadsEnabled && j.status === 'paused')
+    ? '⏸ Paused (master toggle)'
+    : '⏸ Paused';
   return '<div class="dl-card" data-id="' + escapeHtml(j.id) + '" style="opacity:0.6">'
     + '<div class="dl-thumb-wrap">' + thumb + '</div>'
     + '<div class="dl-body">'
-    + '<div><div class="dl-title" title="' + escapeHtml(j.title || '') + '">' + escapeHtml(j.title || j.video_id || 'Unknown') + '</div>'
-    + '<div class="dl-meta"><span class="dl-chip">⏸ Paused</span><span class="dl-chip">' + pct.toFixed(1) + '%</span></div></div>'
+    + '<div><div class="dl-title" title="' + escapeHtml(j.title || '') + '">' + escapeHtml(j.title || j.url.split('/').pop() || 'Unknown') + '</div>'
+    + '<div class="dl-meta"><span class="dl-chip">' + pauseReason + '</span><span class="dl-chip">' + pct.toFixed(1) + '%</span></div></div>'
     + '<div><div class="dl-progress"><div class="dl-progress-bar"><div class="dl-progress-fill" style="width:' + pct + '%"></div></div></div>'
     + '<div class="dl-stats"><span>Paused at ' + pct.toFixed(1) + '%</span><span class="dl-cancel" onclick="resumeJob(\'' + escapeHtml(j.id) + '\')">Resume</span></div></div>'
     + '</div></div>';
@@ -172,7 +188,6 @@ function renderDashboard(jobs) {
   const paused = jobs.filter(j => j.status === 'paused');
   const queued = jobs.filter(j => j.status === 'queued');
   const failed = jobs.filter(j => j.status === 'failed');
-  const completed = jobs.filter(j => j.status === 'completed').slice(0, 6);
 
   let html = '';
 
@@ -187,9 +202,6 @@ function renderDashboard(jobs) {
   }
   if (failed.length) {
     html += buildSection('FAILED', 'grid-3', failed.map(buildFailedCard).join(''));
-  }
-  if (completed.length) {
-    html += buildSection('RECENT', 'grid-3', completed.map(buildRecentCard).join(''));
   }
 
   sections.innerHTML = html;
@@ -224,6 +236,13 @@ function retryJob(id) {
 
 function cancelJob(id) {
   fetch("/api/jobs/" + id + "/cancel", {method:"POST"}).then(r => r.json()).then(d => { showToast("Cancelled"); });
+}
+
+function pauseJob(id) {
+  fetch("/api/jobs/" + id + "/pause", {method:"POST"})
+    .then(r => r.json())
+    .then(d => { showToast("Paused"); })
+    .catch(() => showToast("Pause failed", "error"));
 }
 
 function deleteJob(id) {

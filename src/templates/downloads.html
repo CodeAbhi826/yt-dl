@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Library - yt-dl{% endblock %}
+{% block content %}
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:24px;">
+  <h1 style="font-size:22px; font-weight:500;">Downloads</h1>
+  <div style="display:flex; gap:12px; align-items:center;">
+    <input type="text" id="dl-search" placeholder="Search downloads..." class="form-input" style="width:300px;">
+    <select id="dl-sort" class="form-input" style="width:auto;">
+      <option value="newest">Newest first</option>
+      <option value="oldest">Oldest first</option>
+      <option value="largest">Largest first</option>
+      <option value="smallest">Smallest first</option>
+      <option value="title">Title (A-Z)</option>
+    </select>
+  </div>
+</div>
+<div id="dl-grid"></div>
+<div style="text-align:center; padding:20px;">
+  <button class="btn btn-secondary" id="dl-load-more" onclick="loadMoreDownloads()" style="display:none;">Load more</button>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='downloads.js') }}"></script>
+{% endblock %}

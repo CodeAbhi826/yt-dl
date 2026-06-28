@@ -32,7 +32,7 @@ from models import (
 COOKIES_PATH = DATA_DIR / "cookies.txt"
 from worker import (
     process_queue, cancel_job, retry_job, active_jobs, pause_job, resume_job,
-    queue_lock, save_job
+    queue_lock, save_job, sync_active_downloads_with_toggle
 )
 from updater import start_auto_updater
 from _version import __version__
@@ -145,6 +145,60 @@ def require_auth(f):
         return f(*args, **kwargs)
     wrapper.__name__ = f.__name__
     return wrapper
+
+def normalize_url(url):
+    """Normalize URL for dedup. Strips query params (except v=),
+    normalizes domain, removes trailing slashes."""
+    from urllib.parse import urlparse, parse_qs, urlencode
+    parsed = urlparse(url)
+    netloc = parsed.netloc.lower()
+    if netloc.startswith('www.'):
+        netloc = netloc[4:]
+    if 'youtube.com' in netloc:
+        qs = parse_qs(parsed.query)
+        if 'v' in qs:
+            query = urlencode({'v': qs['v'][0]})
+        else:
+            query = ''
+    else:
+        query = parsed.query
+    return f"{parsed.scheme}://{netloc}{parsed.path}" + (f"?{query}" if query else "")
+
+
+def _fetch_metadata_async(job_id, url):
+    """Background fetch of title + thumbnail + video_id via yt-dlp --dump-json."""
+    try:
+        env = {**os.environ}
+        if "OPENSSL_CONF" not in os.environ:
+            env["OPENSSL_CONF"] = "/dev/null"
+        result = subprocess.run(
+            ["yt-dlp", "--dump-json", "--no-download", url],
+            capture_output=True, text=True, timeout=15, env=env
+        )
+        if result.returncode == 0 and result.stdout:
+            info = json.loads(result.stdout.strip().split("\n")[0])
+            title = (info.get("title") or "Unknown")[:80]
+            thumbnail = info.get("thumbnail") or ""
+            video_id = ""
+            m = re.search(r"(?:v=|/)([A-Za-z0-9_-]{11})", url)
+            if m:
+                video_id = m.group(1)
+            elif info.get("id"):
+                video_id = str(info.get("id"))[:30]
+
+            db = get_db()
+            try:
+                db.execute(
+                    "UPDATE downloads SET title=?, video_id=?, thumbnail=? WHERE job_id=? AND title=''",
+                    (title, video_id, thumbnail, job_id)
+                )
+                db.commit()
+            finally:
+                db.close()
+            logger.info(f"Metadata fetched for {job_id}: {title}")
+    except Exception as e:
+        logger.debug(f"Metadata fetch failed for {job_id}: {e}")
+
 
 # ── Flask App ─────────────────────────────────────────────────────
 
@@ -376,6 +430,7 @@ ALLOWED_SETTINGS = {
     "max_log_lines": int,
     "webhook_url": str,
     "downloads_enabled": bool,
+    "duplicate_detection": str,
 }
 
 VALID_QUALITIES = {"144p","240p","360p","480p","720p","1080p","1440p","2160p","best","audio"}
@@ -423,12 +478,62 @@ def api_toggle_downloads():
         return jsonify({"error": "Missing 'enabled' field"}), 400
     enabled = bool(data["enabled"])
     cfg = load_config()
+    was_enabled = cfg.get("downloads_enabled", True)
     cfg["downloads_enabled"] = enabled
     save_config(cfg)
     logger.info(f"Master download toggle: {'ON' if enabled else 'OFF'}")
+
+    if was_enabled != enabled:
+        sync_active_downloads_with_toggle()
+
     if enabled:
         process_queue()
     return jsonify({"downloads_enabled": enabled})
+
+@app.route("/api/downloads")
+def api_downloads():
+    """Paginated list of completed downloads, with search + sort."""
+    try:
+        limit = max(1, min(int(request.args.get("limit", 24)), 100))
+        offset = max(0, int(request.args.get("offset", 0)))
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid pagination params"}), 400
+
+    sort = request.args.get("sort", "newest")
+    q = request.args.get("q", "").strip()
+
+    order_by = {
+        "newest": "completed_at DESC, created_at DESC",
+        "oldest": "completed_at ASC, created_at ASC",
+        "largest": "file_size DESC",
+        "smallest": "file_size ASC",
+        "title": "title ASC",
+    }.get(sort, "completed_at DESC")
+
+    db = get_db()
+    try:
+        where = "WHERE status='completed'"
+        params = []
+        if q:
+            where += " AND (title LIKE ? OR url LIKE ?)"
+            like = f"%{q}%"
+            params.extend([like, like])
+
+        total = db.execute(f"SELECT COUNT(*) as c FROM downloads {where}", tuple(params)).fetchone()["c"]
+        rows = db.execute(
+            f"SELECT * FROM downloads {where} ORDER BY {order_by} LIMIT ? OFFSET ?",
+            tuple(params) + (limit, offset)
+        ).fetchall()
+    finally:
+        db.close()
+
+    return jsonify({
+        "jobs": [job_to_dict(r) for r in rows],
+        "total": total,
+        "offset": offset,
+        "limit": limit
+    })
+
 
 @app.route("/api/settings/cookies", methods=["GET"])
 def api_cookies_status():
@@ -590,6 +695,26 @@ def api_add_job():
 
     url_hash = hashlib.sha256(url.encode()).hexdigest()[:12]
 
+    # Dedup check (Phase 7a)
+    cfg_dedup = cfg.get("duplicate_detection", "strict")
+    if cfg_dedup != "off":
+        nurl = normalize_url(url)
+        db = get_db()
+        try:
+            if cfg_dedup == "lenient":
+                existing = db.execute("SELECT job_id, status, title FROM downloads WHERE (url=? OR url=?) AND status='completed' ORDER BY created_at DESC LIMIT 1", (url, nurl)).fetchone()
+            else:
+                existing = db.execute("SELECT job_id, status, title FROM downloads WHERE (url=? OR url=?) ORDER BY created_at DESC LIMIT 1", (url, nurl)).fetchone()
+            if existing:
+                return jsonify({
+                    "duplicate": True,
+                    "existing_job_id": existing["job_id"],
+                    "existing_status": existing["status"],
+                    "message": f"Already exists as {existing['status']}"
+                }), 409
+        finally:
+            db.close()
+
     # Check if this is a playlist
     is_playlist = "list=" in url or "/playlist/" in url
     if is_playlist:
@@ -650,6 +775,13 @@ def api_add_job():
 
     logger.info(f"Download added [{quality}] {title or video_id or url}")
 
+    threading.Thread(
+        target=_fetch_metadata_async,
+        args=(job_id, url),
+        daemon=True,
+        name=f"meta-{job_id[:8]}"
+    ).start()
+
     process_queue()
 
     return jsonify({"job_id": job_id, "status": "queued"})
@@ -678,12 +810,11 @@ def api_bulk_add():
     skipped_invalid = 0
     results = []
 
+    dedup_mode = cfg.get("duplicate_detection", "strict")
+    added_job_ids = []
+
     db = get_db()
     try:
-        existing_urls = {r["url"] for r in db.execute(
-            "SELECT DISTINCT url FROM downloads WHERE status='completed'"
-        ).fetchall()}
-
         for url in urls:
             url = (url or "").strip()
             if not url:
@@ -692,10 +823,18 @@ def api_bulk_add():
                 skipped_invalid += 1
                 results.append({"url": url, "status": "invalid"})
                 continue
-            if url in existing_urls:
-                skipped_duplicate += 1
-                results.append({"url": url, "status": "duplicate"})
-                continue
+
+            # Dedup check
+            if dedup_mode != "off":
+                nurl = normalize_url(url)
+                if dedup_mode == "lenient":
+                    existing = db.execute("SELECT 1 FROM downloads WHERE (url=? OR url=?) AND status='completed' LIMIT 1", (url, nurl)).fetchone()
+                else:
+                    existing = db.execute("SELECT 1 FROM downloads WHERE (url=? OR url=?) LIMIT 1", (url, nurl)).fetchone()
+                if existing:
+                    skipped_duplicate += 1
+                    results.append({"url": url, "status": "duplicate"})
+                    continue
 
             video_id = ""
             m = re.search(r"(?:v=|/)([A-Za-z0-9_-]{11})", url)
@@ -708,8 +847,8 @@ def api_bulk_add():
                 "INSERT INTO downloads (job_id, video_id, url, quality, status, title) VALUES (?, ?, ?, ?, 'queued', ?)",
                 (job_id, video_id, url, quality, "")
             )
-            existing_urls.add(url)
             added += 1
+            added_job_ids.append((job_id, url))
             results.append({"url": url, "status": "added", "job_id": job_id})
 
         db.commit()
@@ -718,6 +857,13 @@ def api_bulk_add():
 
     logger.info(f"Bulk add: {added} added, {skipped_duplicate} duplicates, {skipped_invalid} invalid")
     if added > 0:
+        for jid, u in added_job_ids:
+            threading.Thread(
+                target=_fetch_metadata_async,
+                args=(jid, u),
+                daemon=True,
+                name=f"meta-{jid[:8]}"
+            ).start()
         process_queue()
     return jsonify({
         "added": added,
@@ -734,6 +880,12 @@ def dashboard():
     cfg = load_config()
     return render_template("dashboard.html", active="dashboard", theme=cfg.get("theme", "dark"))
 
+@app.route("/downloads")
+def downloads_page():
+    cfg = load_config()
+    return render_template("downloads.html", active="downloads", theme=cfg.get("theme", "dark"))
+
+
 @app.route("/settings")
 def settings_page():
     cfg = load_config()
@@ -748,7 +900,8 @@ def settings_page():
                            embed_thumbnail=cfg.get("embed_thumbnail", True),
                            embed_chapters=cfg.get("embed_chapters", True),
                            embed_subs=cfg.get("embed_subs", True),
-                           theme=cfg.get("theme", "dark"))
+                           theme=cfg.get("theme", "dark"),
+                           duplicate_detection=cfg.get("duplicate_detection", "strict"))
 
 @app.route("/stats")
 def stats_page():

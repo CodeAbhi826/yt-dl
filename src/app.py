@@ -31,7 +31,7 @@ from models import (
 )
 COOKIES_PATH = DATA_DIR / "cookies.txt"
 from worker import (
-    process_queue, cancel_job, retry_job, active_jobs, pause_job, resume_job,
+    process_queue, cancel_job, retry_job, retry_all_failed, active_jobs, pause_job, resume_job,
     queue_lock, save_job, sync_active_downloads_with_toggle
 )
 from updater import start_auto_updater
@@ -349,6 +349,13 @@ def api_resume_all():
         process_queue()
     return jsonify({"resumed": resumed})
 
+@app.route("/api/jobs/retry-all", methods=["POST"])
+@require_auth
+def api_retry_all():
+    total = retry_all_failed()
+    logger.info(f"Retried {total} failed/zombie jobs")
+    return jsonify({"retried": total})
+
 @app.route("/api/jobs/<job_id>", methods=["DELETE"])
 @require_auth
 def api_delete_job(job_id):
@@ -590,6 +597,8 @@ def api_stats():
     active = db.execute("SELECT COUNT(*) as c FROM downloads WHERE status='downloading'").fetchone()["c"]
     daily = db.execute("SELECT date(created_at) as day, COUNT(*) as cnt FROM downloads WHERE created_at >= date('now', '-7 days') GROUP BY day ORDER BY day").fetchall()
     total_bytes = db.execute("SELECT COALESCE(SUM(file_size), 0) as s FROM downloads WHERE status='completed'").fetchone()["s"]
+    cancelled = db.execute("SELECT COUNT(*) as c FROM downloads WHERE status='cancelled'").fetchone()["c"]
+    active = db.execute("SELECT COUNT(*) as c FROM downloads WHERE status IN ('queued','downloading')").fetchone()["c"]
     db.close()
 
     today = datetime.now(timezone.utc).date()
@@ -606,8 +615,6 @@ def api_stats():
         })
 
     success_rate = round(success / total * 100, 1) if total > 0 else 0
-    cancelled = db.execute("SELECT COUNT(*) as c FROM downloads WHERE status='cancelled'").fetchone()["c"]
-    active = db.execute("SELECT COUNT(*) as c FROM downloads WHERE status IN ('queued','downloading')").fetchone()["c"]
     other = total - success - failed - cancelled - active
     status_breakdown = [
         {"label": "Completed", "count": success, "color": "#22c55e", "pct": round(success/total*100,1) if total else 0},
@@ -1029,6 +1036,8 @@ if __name__ == "__main__":
     ring_log.max_lines = cfg.get("max_log_lines", 500)
     start_auto_updater()
     queue_broadcaster.start()
+    # Kick the queue worker on startup to process any queued jobs
+    process_queue()
     host = os.environ.get("YTDL_BIND", "127.0.0.1")
     port = int(os.environ.get("YTDL_PORT", 5000))
     logger.info(f"yt-dl v{__version__} started — http://{host}:{port}")

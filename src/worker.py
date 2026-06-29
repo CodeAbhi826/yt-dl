@@ -6,6 +6,7 @@ import sys
 import json
 import time
 import signal
+import shutil
 import sqlite3
 import subprocess
 import threading
@@ -137,9 +138,41 @@ def _process_queue():
     download_dir = Path(cfg.get("download_dir", "/mnt/storage/YouTube"))
 
     with queue_lock:
-        active_count = sum(1 for j in active_jobs.values() if j.status == "downloading")
+        # Count genuinely active downloads (skip zombies with dead procs)
+        active_count = 0
+        dead_jobs = []
+        for j in list(active_jobs.values()):
+            if j.status != "downloading":
+                continue
+            if j.proc and j.proc.poll() is None:
+                active_count += 1
+            else:
+                dead_jobs.append(j)
+        for j in dead_jobs:
+            j.status = "failed"
+            j.error_message = "Process died unexpectedly"
+            del active_jobs[j.job_id]
+            save_job(j)
+            logger.warning(f"Cleaned up zombie job: {j.job_id}")
         if active_count >= concurrent_limit:
             return
+
+        # Clean up DB zombies — jobs stuck in "downloading" with no active job
+        db = get_db()
+        try:
+            active_ids = set(active_jobs.keys())
+            rows = db.execute(
+                "SELECT job_id FROM downloads WHERE status='downloading'"
+            ).fetchall()
+            for row in rows:
+                if row["job_id"] not in active_ids:
+                    db.execute(
+                        "UPDATE downloads SET status='failed', error_message='Zombie: no active process' "
+                        "WHERE job_id=?", (row["job_id"],)
+                    )
+            db.commit()
+        finally:
+            db.close()
 
         db = get_db()
         try:
@@ -240,6 +273,15 @@ def run_download(job, download_dir):
     if COOKIES_PATH.exists():
         download_cmd.extend(["--cookies", str(COOKIES_PATH)])
 
+    # Use aria2c for multi-connection downloads when available (bypasses ISP throttling)
+    aria2c_path = shutil.which("aria2c")
+    if aria2c_path:
+        download_cmd.extend([
+            "--downloader", aria2c_path,
+            "--downloader-args", "aria2c:-x 16 -k 1M",
+        ])
+        logger.debug("Using aria2c downloader for multi-connection speed")
+
     try:
         download_dir.mkdir(parents=True, exist_ok=True)
     except (PermissionError, OSError) as e:
@@ -285,10 +327,15 @@ def run_download(job, download_dir):
 
                     total_bytes_str = data.get("total_bytes", "")
                     downloaded_bytes_str = data.get("downloaded_bytes", "")
-                    if total_bytes_str:
+                    # aria2c may report "NA" — don't overwrite valid stored values
+                    if total_bytes_str and total_bytes_str not in ("NA", "0 B"):
                         job.total_bytes = parse_bytes(total_bytes_str)
-                    if downloaded_bytes_str:
+                    if downloaded_bytes_str and downloaded_bytes_str not in ("NA", "0 B"):
                         job.downloaded_bytes = parse_bytes(downloaded_bytes_str)
+
+                    # aria2c doesn't report percentage — calculate from bytes
+                    if job.progress == 0.0 and job.total_bytes > 0:
+                        job.progress = round(job.downloaded_bytes / job.total_bytes * 100, 1)
 
                     filepath = data.get("filepath", "")
                     if filepath and filepath != "NA":
@@ -362,10 +409,10 @@ def run_download(job, download_dir):
         job.error_message = str(e)
 
     finally:
+        save_job(job)
         with queue_lock:
             if job.job_id in active_jobs:
                 del active_jobs[job.job_id]
-        save_job(job)
 
         _fire_webhook(job)
         process_queue()
@@ -475,5 +522,35 @@ def retry_job(job_id: str) -> bool:
             process_queue()
             return True
         return False
+    finally:
+        db.close()
+
+
+def retry_all_failed():
+    """Retry all failed, cancelled, and zombie (stuck downloading) jobs."""
+    db = get_db()
+    try:
+        c = db.execute("""
+            UPDATE downloads SET status='queued', progress=0, error_message=NULL,
+            retry_count=retry_count+1 WHERE status IN ('failed', 'cancelled')
+        """)
+        with queue_lock:
+            active_ids = set(active_jobs.keys())
+        if active_ids:
+            placeholders = ",".join("?" for _ in active_ids)
+            c2 = db.execute(f"""
+                UPDATE downloads SET status='queued', progress=0, error_message=NULL,
+                retry_count=retry_count+1 WHERE status='downloading' AND job_id NOT IN ({placeholders})
+            """, list(active_ids))
+        else:
+            c2 = db.execute("""
+                UPDATE downloads SET status='queued', progress=0, error_message=NULL,
+                retry_count=retry_count+1 WHERE status='downloading'
+            """)
+        db.commit()
+        total = c.rowcount + c2.rowcount
+        if total > 0:
+            process_queue()
+        return total
     finally:
         db.close()

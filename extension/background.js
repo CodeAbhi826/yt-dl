@@ -126,58 +126,66 @@ function showNotification(type, job) {
     meta
   };
 
-  // Prefer source tab if known
-  const targetTabId = sourceTabs[job.id];
-  if (targetTabId) {
-    chrome.scripting.executeScript({
-      target: { tabId: targetTabId },
-      func: injectToast,
-      args: [data]
-    }).catch(() => {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs.length === 0) {
-          fallbackNative(type, job, titles[type] || 'yt-dl');
-        } else {
-          chrome.scripting.executeScript({
-            target: { tabId: tabs[0].id },
-            func: injectToast,
-            args: [data]
-          }).catch(() => fallbackNative(type, job, titles[type] || 'yt-dl'));
-        }
-      });
-    });
+  _tryToastThenFallback(data, type, job, titles[type] || 'yt-dl');
+}
+
+// Sequential toast attempts — no race condition.
+// Tries source tab → active tab → native fallback.
+async function _tryToastThenFallback(data, type, job, title) {
+  const candidateTabIds = [];
+
+  // 1. Source tab (where the user triggered the download)
+  const sourceTabId = sourceTabs[job.id];
+  if (sourceTabId) {
+    candidateTabIds.push(sourceTabId);
     delete sourceTabs[job.id];
+  }
+
+  // 2. Active tab in current window
+  try {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    for (const tab of tabs) {
+      if (!candidateTabIds.includes(tab.id)) {
+        candidateTabIds.push(tab.id);
+      }
+    }
+  } catch (e) {}
+
+  // Filter out non-injectable pages
+  const injectableTabIds = [];
+  for (const tabId of candidateTabIds) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab.url && !tab.url.startsWith('chrome://') &&
+          !tab.url.startsWith('chrome-extension://') &&
+          !tab.url.startsWith('about:') &&
+          !tab.url.startsWith('https://chrome.google.com')) {
+        injectableTabIds.push(tabId);
+      }
+    } catch (e) {}
+  }
+
+  if (injectableTabIds.length === 0) {
+    fallbackNative(type, job, title);
     return;
   }
 
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    if (tabs.length === 0) {
-      fallbackNative(type, job, titles[type] || 'yt-dl');
-      return;
-    }
-    let succeeded = 0;
-    let total = tabs.length;
-    for (const tab of tabs) {
-      if (tab.url && (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://') || tab.url.startsWith('about:'))) {
-        total--;
-        continue;
-      }
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
+  let toastShown = false;
+  for (const tabId of injectableTabIds) {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
         func: injectToast,
         args: [data]
-      }).then(() => { succeeded++; })
-        .catch(() => {})
-        .finally(() => {
-          if (total > 0 && --total === 0 && succeeded === 0) {
-            fallbackNative(type, job, titles[type] || 'yt-dl');
-          }
-        });
-    }
-    if (total === 0) {
-      fallbackNative(type, job, titles[type] || 'yt-dl');
-    }
-  });
+      });
+      toastShown = true;
+      break;
+    } catch (e) {}
+  }
+
+  if (!toastShown) {
+    fallbackNative(type, job, title);
+  }
 }
 
 // ─── Self-contained toast function (runs inside each page) ───
@@ -309,7 +317,14 @@ function injectToast(data) {
   }
 }
 
+const nativeShownFor = new Set();
+
 async function fallbackNative(type, job, title) {
+  const dedupKey = `${job.id}|${type}`;
+  if (nativeShownFor.has(dedupKey)) return;
+  nativeShownFor.add(dedupKey);
+  setTimeout(() => nativeShownFor.delete(dedupKey), 300000);
+
   const { nativeNotifications } = await chrome.storage.local.get(['nativeNotifications']);
   if (nativeNotifications === false) return;
   let message = (job.title || job.video_id || 'Unknown');

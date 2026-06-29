@@ -196,6 +196,12 @@ def parse_bytes(s):
         return 0
 
 
+def _unit_multiplier(unit):
+    """Convert aria2c unit string (KiB, MiB, GiB, TiB) to byte multiplier."""
+    return {"B": 1, "KiB": 1024, "MiB": 1024**2, "GiB": 1024**3, "TiB": 1024**4,
+            "KB": 1000, "MB": 1000**2, "GB": 1000**3, "TB": 1000**4}.get(unit, 1)
+
+
 def run_download(job, download_dir):
     cfg = load_config()
     format_str = QUALITY_MAP.get(job.quality, QUALITY_MAP["720p"])
@@ -220,6 +226,9 @@ def run_download(job, download_dir):
     download_cmd = [
         "yt-dlp",
         "--format", format_str,
+        "--retries", "10",
+        "--fragment-retries", "10",
+        "--retry-sleep", "5",
     ]
 
     if job.quality == "audio":
@@ -258,10 +267,13 @@ def run_download(job, download_dir):
 
     # Use aria2c for multi-connection downloads when available (bypasses ISP throttling)
     aria2c_path = shutil.which("aria2c")
-    if aria2c_path:
+    use_aria2c = bool(aria2c_path)
+    if use_aria2c:
         download_cmd.extend([
             "--downloader", "aria2c",
-            "--downloader-args", "aria2c:-x 16 -s 16 -k 1M --file-allocation=none",
+            # summary-interval=1 makes aria2c print a progress line every 1 second
+            # so we can parse it for real-time progress updates
+            "--downloader-args", "aria2c:-x 16 -s 16 -k 1M --file-allocation=none --summary-interval=1",
         ])
         logger.debug(f"Using aria2c downloader ({aria2c_path}) for multi-connection speed")
 
@@ -340,6 +352,48 @@ def run_download(job, download_dir):
                     logger.debug(f"Progress parse error: {e}")
                 continue
 
+            # Parse aria2c's native progress output format:
+            # [#abc123 10MiB/100MiB(10%) CN:16 DL:5MiB ETA:18s]
+            # or: [#abc123 10MiB(10%) CN:16 DL:5MiB]
+            # or: [#abc123 0.5GiB/2GiB(25%) CN:16 DL:10MiB ETA:3m]
+            if use_aria2c and line.startswith("[#") and "]" in line:
+                try:
+                    import re
+                    # Extract downloaded/total bytes and percentage
+                    m = re.match(r'\[#\w+\s+([\d.]+)(\w+)(?:/([\d.]+)(\w+))?\((\d+)%\)', line)
+                    if m:
+                        dl_val = float(m.group(1))
+                        dl_unit = m.group(2)
+                        pct = float(m.group(5))
+
+                        # Parse total if present
+                        if m.group(3):
+                            total_val = float(m.group(3))
+                            total_unit = m.group(4)
+                            job.total_bytes = int(total_val * _unit_multiplier(total_unit))
+
+                        job.downloaded_bytes = int(dl_val * _unit_multiplier(dl_unit))
+                        job.progress = pct
+
+                        # Extract speed
+                        speed_match = re.search(r'DL:([\d.]+)(\w+/s)', line)
+                        if speed_match:
+                            job.speed = f"{speed_match.group(1)}{speed_match.group(2)}"
+
+                        # Extract ETA
+                        eta_match = re.search(r'ETA:(\w+)', line)
+                        if eta_match:
+                            job.eta = eta_match.group(1)
+
+                        now = time.time()
+                        if now - job.last_update_time >= 1.0:
+                            save_job(job)
+                            job.last_update_time = now
+                            job.last_saved_progress = job.progress
+                    continue
+                except Exception:
+                    pass  # Not a parseable aria2c line, fall through
+
             if line.startswith("[download] Destination: "):
                 dest = line.split("[download] Destination: ")[-1].strip()
                 job.file_path = dest
@@ -355,6 +409,69 @@ def run_download(job, download_dir):
                 logger.error(f"yt-dlp error: {line}")
 
         proc.wait()
+
+        # If aria2c was used and failed, retry once with built-in downloader
+        if proc.returncode != 0 and use_aria2c:
+            logger.warning(f"aria2c failed (exit {proc.returncode}), retrying with built-in downloader: {job.job_id}")
+            # Remove aria2c args
+            aria2c_idx = download_cmd.index("--downloader")
+            retry_cmd = download_cmd[:aria2c_idx] + download_cmd[aria2c_idx+4:]
+            
+            try:
+                proc = subprocess.Popen(
+                    retry_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    cwd=str(download_dir),
+                    start_new_session=True,
+                    env=env,
+                )
+                job.proc = proc
+                job.error_message = None
+                job.progress = 0
+                job.downloaded_bytes = 0
+                save_job(job)
+                
+                for line in proc.stdout:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if line.startswith("{") and line.endswith("}"):
+                        try:
+                            data = json.loads(line)
+                            percent_str = data.get("percent", "0%")
+                            job.progress = float(percent_str.rstrip("%"))
+                            job.speed = data.get("speed", "")
+                            job.eta = data.get("eta", "")
+                            total_bytes_str = data.get("total_bytes", "")
+                            downloaded_bytes_str = data.get("downloaded_bytes", "")
+                            if total_bytes_str and total_bytes_str not in ("NA", "0 B"):
+                                job.total_bytes = parse_bytes(total_bytes_str)
+                            if downloaded_bytes_str and downloaded_bytes_str not in ("NA", "0 B"):
+                                job.downloaded_bytes = parse_bytes(downloaded_bytes_str)
+                            if job.total_bytes > 0 and job.downloaded_bytes > 0:
+                                job.progress = round(job.downloaded_bytes / job.total_bytes * 100, 1)
+                            filepath = data.get("filepath", "")
+                            if filepath and filepath != "NA":
+                                ext = os.path.splitext(filepath)[1].lower()
+                                if ext in (".mp4", ".mkv", ".mp3", ".m4a"):
+                                    job.file_path = filepath
+                            now = time.time()
+                            if abs(job.progress - job.last_saved_progress) >= 1.0 or now - job.last_update_time >= 1.0:
+                                save_job(job)
+                                job.last_saved_progress = job.progress
+                                job.last_update_time = now
+                        except Exception:
+                            pass
+                    if "ERROR:" in line:
+                        job.error_message = line
+                        logger.error(f"yt-dlp error: {line}")
+                proc.wait()
+                logger.info(f"Built-in retry completed with exit code {proc.returncode}: {job.job_id}")
+            except Exception as e:
+                logger.exception(f"Built-in retry also failed: {e}")
 
         with queue_lock:
             already_cancelled = job.job_id not in active_jobs or job.status == "cancelled"

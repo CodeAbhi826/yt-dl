@@ -318,7 +318,7 @@ def api_pause_all():
 @app.route("/api/jobs/resume-all", methods=["POST"])
 @require_auth
 def api_resume_all():
-    """Resume every paused job. Inline the logic to avoid deadlock."""
+    """Resume every paused job (active + DB-marked). Inline logic to avoid deadlock."""
     resumed = 0
     with queue_lock:
         for job in list(active_jobs.values()):
@@ -334,7 +334,19 @@ def api_resume_all():
                 logger.info(f"Resumed job: {job.job_id}")
             except (ProcessLookupError, PermissionError, AttributeError, OSError) as e:
                 logger.warning(f"Failed to resume {job.job_id}: {e}")
+    db = get_db()
+    try:
+        c = db.execute("UPDATE downloads SET status='queued' WHERE status='paused'")
+        db.commit()
+        db_resumed = c.rowcount
+        resumed += db_resumed
+        if db_resumed:
+            logger.info(f"Marked {db_resumed} DB-paused jobs as queued")
+    finally:
+        db.close()
     logger.info(f"Resumed {resumed} jobs total")
+    if resumed > 0:
+        process_queue()
     return jsonify({"resumed": resumed})
 
 @app.route("/api/jobs/<job_id>", methods=["DELETE"])

@@ -32,7 +32,7 @@ from models import (
 COOKIES_PATH = DATA_DIR / "cookies.txt"
 from worker import (
     process_queue, cancel_job, retry_job, retry_all_failed, active_jobs, pause_job, resume_job,
-    queue_lock, save_job, sync_active_downloads_with_toggle
+    queue_lock, save_job, sync_active_downloads_with_toggle, cleanup_zombies_on_startup
 )
 from updater import start_auto_updater
 from _version import __version__
@@ -594,7 +594,6 @@ def api_stats():
     total = db.execute("SELECT COUNT(*) as c FROM downloads").fetchone()["c"]
     success = db.execute("SELECT COUNT(*) as c FROM downloads WHERE status='completed'").fetchone()["c"]
     failed = db.execute("SELECT COUNT(*) as c FROM downloads WHERE status='failed'").fetchone()["c"]
-    active = db.execute("SELECT COUNT(*) as c FROM downloads WHERE status='downloading'").fetchone()["c"]
     daily = db.execute("SELECT date(created_at) as day, COUNT(*) as cnt FROM downloads WHERE created_at >= date('now', '-7 days') GROUP BY day ORDER BY day").fetchall()
     total_bytes = db.execute("SELECT COALESCE(SUM(file_size), 0) as s FROM downloads WHERE status='completed'").fetchone()["s"]
     cancelled = db.execute("SELECT COUNT(*) as c FROM downloads WHERE status='cancelled'").fetchone()["c"]
@@ -1036,7 +1035,8 @@ if __name__ == "__main__":
     ring_log.max_lines = cfg.get("max_log_lines", 500)
     start_auto_updater()
     queue_broadcaster.start()
-    # Kick the queue worker on startup to process any queued jobs
+    # Clean up zombie jobs from previous crash, then kick the queue worker
+    cleanup_zombies_on_startup()
     process_queue()
     host = os.environ.get("YTDL_BIND", "127.0.0.1")
     port = int(os.environ.get("YTDL_PORT", 5000))

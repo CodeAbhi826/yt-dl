@@ -157,23 +157,6 @@ def _process_queue():
         if active_count >= concurrent_limit:
             return
 
-        # Clean up DB zombies — jobs stuck in "downloading" with no active job
-        db = get_db()
-        try:
-            active_ids = set(active_jobs.keys())
-            rows = db.execute(
-                "SELECT job_id FROM downloads WHERE status='downloading'"
-            ).fetchall()
-            for row in rows:
-                if row["job_id"] not in active_ids:
-                    db.execute(
-                        "UPDATE downloads SET status='failed', error_message='Zombie: no active process' "
-                        "WHERE job_id=?", (row["job_id"],)
-                    )
-            db.commit()
-        finally:
-            db.close()
-
         db = get_db()
         try:
             rows = db.execute(
@@ -277,10 +260,10 @@ def run_download(job, download_dir):
     aria2c_path = shutil.which("aria2c")
     if aria2c_path:
         download_cmd.extend([
-            "--downloader", aria2c_path,
-            "--downloader-args", "aria2c:-x 16 -k 1M",
+            "--downloader", "aria2c",
+            "--downloader-args", "aria2c:-x 16 -s 16 -k 1M --file-allocation=none",
         ])
-        logger.debug("Using aria2c downloader for multi-connection speed")
+        logger.debug(f"Using aria2c downloader ({aria2c_path}) for multi-connection speed")
 
     try:
         download_dir.mkdir(parents=True, exist_ok=True)
@@ -333,8 +316,8 @@ def run_download(job, download_dir):
                     if downloaded_bytes_str and downloaded_bytes_str not in ("NA", "0 B"):
                         job.downloaded_bytes = parse_bytes(downloaded_bytes_str)
 
-                    # aria2c doesn't report percentage — calculate from bytes
-                    if job.progress == 0.0 and job.total_bytes > 0:
+                    # aria2c doesn't report percentage — always calculate from bytes when available
+                    if job.total_bytes > 0 and job.downloaded_bytes > 0:
                         job.progress = round(job.downloaded_bytes / job.total_bytes * 100, 1)
 
                     filepath = data.get("filepath", "")
@@ -409,10 +392,10 @@ def run_download(job, download_dir):
         job.error_message = str(e)
 
     finally:
-        save_job(job)
         with queue_lock:
             if job.job_id in active_jobs:
                 del active_jobs[job.job_id]
+        save_job(job)
 
         _fire_webhook(job)
         process_queue()
@@ -528,29 +511,51 @@ def retry_job(job_id: str) -> bool:
 
 def retry_all_failed():
     """Retry all failed, cancelled, and zombie (stuck downloading) jobs."""
+    with queue_lock:
+        active_ids = list(active_jobs.keys())
+    
     db = get_db()
     try:
-        c = db.execute("""
-            UPDATE downloads SET status='queued', progress=0, error_message=NULL,
-            retry_count=retry_count+1 WHERE status IN ('failed', 'cancelled')
-        """)
-        with queue_lock:
-            active_ids = set(active_jobs.keys())
+        # Retry failed + cancelled
+        c = db.execute(
+            "UPDATE downloads SET status='queued', progress=0, error_message=NULL, "
+            "retry_count=retry_count+1 WHERE status IN ('failed', 'cancelled')"
+        )
+        # Retry zombies (downloading but no active process)
         if active_ids:
             placeholders = ",".join("?" for _ in active_ids)
-            c2 = db.execute(f"""
-                UPDATE downloads SET status='queued', progress=0, error_message=NULL,
-                retry_count=retry_count+1 WHERE status='downloading' AND job_id NOT IN ({placeholders})
-            """, list(active_ids))
+            c2 = db.execute(
+                "UPDATE downloads SET status='queued', progress=0, error_message=NULL, "
+                f"retry_count=retry_count+1 WHERE status='downloading' AND job_id NOT IN ({placeholders})",
+                active_ids
+            )
         else:
-            c2 = db.execute("""
-                UPDATE downloads SET status='queued', progress=0, error_message=NULL,
-                retry_count=retry_count+1 WHERE status='downloading'
-            """)
+            c2 = db.execute(
+                "UPDATE downloads SET status='queued', progress=0, error_message=NULL, "
+                "retry_count=retry_count+1 WHERE status='downloading'"
+            )
         db.commit()
         total = c.rowcount + c2.rowcount
         if total > 0:
             process_queue()
         return total
+    finally:
+        db.close()
+
+
+def cleanup_zombies_on_startup():
+    """Run ONCE at daemon startup. Marks any jobs stuck in 'downloading'
+    from a previous crash as 'failed'. At startup, active_jobs is empty,
+    so any 'downloading' job in the DB is a zombie."""
+    db = get_db()
+    try:
+        c = db.execute(
+            "UPDATE downloads SET status='failed', "
+            "error_message='Zombie: daemon restarted while downloading' "
+            "WHERE status='downloading'"
+        )
+        db.commit()
+        if c.rowcount > 0:
+            logger.info(f"Cleaned up {c.rowcount} zombie job(s) from previous run")
     finally:
         db.close()

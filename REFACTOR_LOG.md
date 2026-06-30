@@ -969,3 +969,140 @@ __version__ = "1.1.0"
 |--------|-------|--------|-------|
 | Cookie export command | cookie section | `yt-dlp --cookies-from-browser chrome --cookies ...` | two options: `chrome:Default` with correct invocation, or browser extension approach |
 
+---
+
+## Phase 8 — v5 Polish & Hotfixes (v1.2.0)
+
+**Files changed:** `src/app.py`, `src/worker.py`, `src/models.py`, `src/static/dashboard.js`, `src/static/style.css`, `src/static/stats.js`, `src/templates/*.html`, `extension/background.js`, `extension/popup.html`, `extension/popup.js`
+
+### 8a — Duplicate Detection Enhancements
+- **Before:** Only checked raw URL match against `downloads` table.
+- **After:** `normalize_url()` strips YouTube tracking params (`t=`, `list=`, `feature=`), preserves only `v=`. Three modes: `strict` (any status), `lenient` (completed only), `off`. Playlist dedup also respects setting.
+- **Lines:** `app.py` — `normalize_url()`, `api_add_job()`, `api_bulk_add()`. `models.py` — `DEFAULT_CONFIG["duplicate_detection"]`.
+
+### 8b — Per-Card Pause/Resume + Split Footer Buttons
+- **Before:** Only global toggle. Paused stayed in active sections.
+- **After:** Each card has its own pause/resume button. Footer has separate `#pause-all` and `#resume-all`. `api_pause_all` also marks DB-queued jobs as paused. `api_resume_all` also marks DB-paused as queued.
+- **Lines:** `app.py` — `api_pause_job()`, `api_pause_all()`, `api_resume_all()`. `dashboard.js` — `pauseJob()`, `buildPausedCard()`, `updateFooter()`.
+
+### 8c — Paused Card Grid Layout
+- **Before:** Paused cards used 2-col `dl-card` layout (160px tall).
+- **After:** Uses 3-col `q-card` layout (120px tall) with orange border, matching other queue sections.
+- **Lines:** `dashboard.js` — `buildPausedCard()`. `style.css` — `.q-card.paused`.
+
+### 8d — Separate Downloads Page
+- **Before:** All downloads shown only on dashboard.
+- **After:** `/downloads` page with search bar, sort dropdown (`newest`, `oldest`, `title`), load-more pagination. Separate JS file `downloads.js`.
+- **Lines:** `app.py` — `/downloads` route, `/api/downloads` endpoint. `downloads.html`, `downloads.js`.
+
+### 8e — Thumbnail Column + File-Size Progress
+- **Before:** No thumbnails in UI. Progress showed only percentage.
+- **After:** `models.py` stores `thumbnail`, `total_bytes`, `downloaded_bytes`. `worker.py` captures thumbnail from yt-dlp metadata, parses file size from progress template. Dashboard cards show thumbnail image + `X.XX MB / Y.YY MB`.
+- **Lines:** `models.py` — DB schema migration. `worker.py` — thumbnail capture, `parse_bytes()`. `dashboard.js` — `buildThumb()`.
+
+### 8f — Font Redesign
+- **Before:** System font stack with many weights.
+- **After:** Product Sans / Google Sans with weights reduced to 500 (300/400/500 only). Inter loaded with 300/400/500 only.
+- **Lines:** `style.css` — font stack. `base.html` — Inter import.
+
+### 8g — Enhanced Dedup UI
+- **Before:** No dedup configuration.
+- **After:** Settings page has `duplicate_detection` dropdown with `strict`/`lenient`/`off` options.
+- **Lines:** `settings.html` — dropdown UI. `settings.js` — save handler.
+
+---
+
+## Phase 9 — Notification Rewrite + Extension Fixes
+
+**Files changed:** `extension/background.js`, `extension/popup.html`, `extension/popup.js`
+
+### 9a — Sequential Toast Notification (Race-Free)
+- **Before:** `showNotification()` tried all tabs in parallel with counter race — multiple native notifications fired simultaneously.
+- **After:** `_tryToastThenFallback()` tries one tab at a time: source tab → active tab → native. Uses simple `toastShown` boolean instead of counters. Errors injected as toast before native.
+- **Lines:** `background.js` — `_tryToastThenFallback()` replaces `showNotification()`.
+
+### 9b — Native Notification Dedup (5-minute window)
+- **Before:** Same notification could repeat on every progress poll.
+- **After:** `nativeShownFor` Set with `job.id|type` dedup keys. Auto-clears after 300s.
+- **Lines:** `background.js` — `fallbackNative()`.
+
+### 9c — Native Notifications Default OFF (Opt-In)
+- **Before:** Native notifications fired by default unless user explicitly disabled them.
+- **After:** `nativeNotifications !== true` — only show when explicitly `true`. Popup checkbox defaults to unchecked; sets `nativeCheckbox.checked = result.nativeNotifications === true`.
+- **Lines:** `background.js` — `fallbackNative()` and context menu error handler. `popup.js` — checkbox init. `popup.html` — "Also show OS notifications" description.
+
+### 9d — Error Notifications → In-Page Toast
+- **Before:** Daemon-down errors spawned native OS notifications.
+- **After:** Error notifications try toast injection first. `canUseNative` gates all `chrome.notifications.create` calls. Only fall back to native if no injectable tab.
+- **Lines:** `background.js` — context menu error handler wrap.
+
+---
+
+## Phase 10 — aria2c Multi-Connection + Zombie Cleanup + Performance
+
+**Files changed:** `src/worker.py`, `src/app.py`, `src/models.py`
+
+### 10a — aria2c Downloader Integration
+- **Before:** yt-dlp used its internal single-connection downloader. ISP throttling limited per-file speed.
+- **After:** Auto-detects `aria2c` via `shutil.which()`. Uses `--downloader aria2c` with `-x 16 -s 16 -k 1M --file-allocation=none --summary-interval=1 --max-tries=3 --retry-wait=2`. Each download uses 16 parallel TCP connections.
+- **Lines:** `worker.py` — `run_download()` download command construction.
+
+### 10b — aria2c Native Progress Parsing
+- **Before:** yt-dlp's JSON progress template with aria2c gave `percent: "0%"` always. Progress stuck at 0%.
+- **After:** Parses aria2c's native output `[#abc123 10MiB/100MiB(10%) CN:16 DL:5MiB ETA:18s]` via regex. Falls back to calculating percent from `downloaded_bytes / total_bytes`.
+- **Lines:** `worker.py` — aria2c output parsing loop.
+
+### 10c — Built-In Fallback on aria2c Failure
+- **Before:** aria2c failure = job failed permanently.
+- **After:** If aria2c exits non-zero, retries with yt-dlp's built-in downloader + `--no-continue --no-part-file`. First cleans up aria2c partial files (`.aria2`, zero-byte, `.part`) to prevent HTTP 416 errors.
+- **Lines:** `worker.py` — built-in retry block in `run_download()`.
+
+### 10d — Generic Extractor Fallback (Unsupported Sites)
+- **Before:** Unsupported sites (TheyAreHuge, you-porn, spankbang, etc.) failed with "yt-dlp exited 2" — no retry path.
+- **After:** If all attempts fail, retries with `--force-generic-extractor` which scans page HTML for video URLs. Works for sites without dedicated yt-dlp extractors.
+- **Lines:** `worker.py` — generic-extractor retry block in `run_download()`.
+
+### 10e — VP9 Codec Constraint Removed
+- **Before:** Format strings forced `[vcodec^=vp9]` — failed on sites without VP9 streams.
+- **After:** Format strings use `bestvideo[height<=720]+bestaudio/best[height<=720]` — picks any available codec (h264, vp9, av1). Falls back to best available below target resolution.
+- **Lines:** `models.py` — `QUALITY_MAP` entries.
+
+### 10f — Startup Queue Trigger
+- **Before:** Daemon started with `active_jobs` empty. Queued jobs sat idle until a job was manually added. No automatic processing on boot.
+- **After:** `process_queue()` called at startup after `init_db()`. Queue worker immediately picks up queued jobs.
+- **Lines:** `app.py` — startup sequence before `app.run()`.
+
+### 10g — Zombie Detection & Cleanup (Two Layers)
+- **Before:** Jobs could stay in "downloading" status permanently if process died or daemon restarted.
+- **After:**
+  - **Layer 1:** `_process_queue()` checks `active_jobs` for dead procs (`poll() is not None`) → marks as failed, removes, saves.
+  - **Layer 2:** `cleanup_zombies_on_startup()` runs once on daemon boot — any `downloading` job in DB with no matching `active_jobs` entry → failed with "daemon restarted" message.
+- **Lines:** `worker.py` — `_process_queue()` zombie detection. `cleanup_zombies_on_startup()` function.
+
+### 10h — save_job Order Fix
+- **Before:** `run_download` `finally` block removed job from `active_jobs` *before* `save_job()`. If `save_job()` crashed, job was a permanent DB zombie.
+- **After:** `save_job()` runs first, then `del active_jobs[...]`. If save crashes, zombie detection catches it on next queue cycle.
+- **Lines:** `worker.py` — `finally` block order.
+
+### 10i — Retry-All Endpoint + Retry Cap
+- **Before:** No bulk retry. `retry_all_failed()` retried ALL failed/zombie jobs unconditionally, creating infinite loops for hopeless jobs.
+- **After:** New `POST /api/jobs/retry-all` endpoint. Respects site-support detection — skips unsupported domains after generic-extractor fallback. `retry_count` tracked in DB.
+- **Lines:** `app.py` — `api_retry_all()` route. `worker.py` — `retry_all_failed()` function.
+
+### 10j — Stats Page DB Close Fix
+- **Before:** `api_stats()` closed the DB connection at line 593, then tried to query again on lines 609-610 → `Cannot operate on a closed database` → 500 error on `/api/stats`.
+- **After:** `db.close()` moved to after all queries. Stats page now renders correctly.
+- **Lines:** `app.py` — `api_stats()` query order.
+
+### 10k — 0.5s Update Interval
+- **Before:** SSE broadcaster polled every 1s. Progress saved every 1s. Cards lagged up to 2s behind real progress.
+- **After:** Both intervals halved to 0.5s. Cards update in ~0.5–1s of real progress.
+- **Lines:** `app.py:968` — `time.sleep(0.5)`. `worker.py` — throttle checks.
+
+### 10l — Retry & Fragment Retries
+- **Before:** yt-dlp had default retry (1 attempt). Drops caused permanent failures.
+- **After:** `--retries 10 --fragment-retries 10 --retry-sleep 5` added to yt-dlp command.
+- **Lines:** `worker.py` — download command construction.
+
+---
+

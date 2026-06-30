@@ -271,9 +271,12 @@ def run_download(job, download_dir):
     if use_aria2c:
         download_cmd.extend([
             "--downloader", "aria2c",
-            # summary-interval=1 makes aria2c print a progress line every 1 second
-            # so we can parse it for real-time progress updates
-            "--downloader-args", "aria2c:-x 16 -s 16 -k 1M --file-allocation=none --summary-interval=1",
+            # summary-interval=1: print progress every 1 second for real-time parsing
+            # -x 16 -s 16: 16 connections per server, 16 split segments
+            # --file-allocation=none: don't pre-allocate disk (faster start)
+            # --max-tries=3: aria2c retries 3 times internally before giving up
+            # --retry-wait=2: wait 2 seconds between aria2c retries
+            "--downloader-args", "aria2c:-x 16 -s 16 -k 1M --file-allocation=none --summary-interval=1 --max-tries=3 --retry-wait=2",
         ])
         logger.debug(f"Using aria2c downloader ({aria2c_path}) for multi-connection speed")
 
@@ -416,6 +419,27 @@ def run_download(job, download_dir):
             # Remove aria2c args
             aria2c_idx = download_cmd.index("--downloader")
             retry_cmd = download_cmd[:aria2c_idx] + download_cmd[aria2c_idx+4:]
+            # Add --no-continue to force fresh download (don't try to resume from partial)
+            # and --no-part to not leave .part files if this retry also fails
+            if "--no-continue" not in retry_cmd:
+                retry_cmd.extend(["--no-continue", "--no-part-file"])
+            
+            # Clean up partial files left by aria2c — they cause HTTP 416 on retry
+            # because the server rejects the byte-range request for the existing partial.
+            # aria2c leaves files like "video.mp4.aria2" (control file) and "video.mp4" (partial)
+            try:
+                for partial_file in download_dir.rglob("*.aria2"):
+                    logger.info(f"Removing aria2c partial: {partial_file}")
+                    partial_file.unlink(missing_ok=True)
+                # Also remove any 0-byte or partial .mp4/.webm/.m4a files
+                # that don't have a corresponding .aria2 control file
+                for ext in (".mp4", ".webm", ".m4a", ".mp3", ".mkv", ".part"):
+                    for f in download_dir.rglob(f"*{ext}"):
+                        if f.stat().st_size == 0 or f.suffix == ".part":
+                            logger.info(f"Removing empty/partial: {f}")
+                            f.unlink(missing_ok=True)
+            except Exception as cleanup_err:
+                logger.warning(f"Partial cleanup failed (non-fatal): {cleanup_err}")
             
             try:
                 proc = subprocess.Popen(

@@ -325,8 +325,10 @@ async function fallbackNative(type, job, title) {
   nativeShownFor.add(dedupKey);
   setTimeout(() => nativeShownFor.delete(dedupKey), 300000);
 
+  // Native notifications are OPT-IN. Only show if user explicitly enabled them.
+  // undefined (never set) → don't show. false → don't show. true → show.
   const { nativeNotifications } = await chrome.storage.local.get(['nativeNotifications']);
-  if (nativeNotifications === false) return;
+  if (nativeNotifications !== true) return;
   let message = (job.title || job.video_id || 'Unknown');
   if (type === 'completed') {
     const size = job.file_size ? formatBytes(job.file_size) : '';
@@ -409,14 +411,20 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       }]
     }).catch(() => {});
   } catch (err) {
+    // Check if user has enabled native notifications before using them
+    const { nativeNotifications } = await chrome.storage.local.get(['nativeNotifications']);
+    const canUseNative = nativeNotifications === true;
+    
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs.length === 0) {
-        chrome.notifications.create({
-          type: 'basic',
-          iconUrl: 'icons/icon48.png',
-          title: 'yt-dl Error',
-          message: err.message || 'Daemon not running'
-        });
+        if (canUseNative) {
+          chrome.notifications.create({
+            type: 'basic',
+            iconUrl: 'icons/icon48.png',
+            title: 'yt-dl Error',
+            message: err.message || 'Daemon not running'
+          });
+        }
         return;
       }
       chrome.scripting.executeScript({
@@ -431,12 +439,14 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
           meta: 'Check that the daemon is running on localhost:5000'
         }]
       }).catch(() => {
-        chrome.notifications.create({
-          type: 'basic',
-          iconUrl: 'icons/icon48.png',
-          title: 'yt-dl Error',
-          message: err.message || 'Daemon not running'
-        });
+        if (canUseNative) {
+          chrome.notifications.create({
+            type: 'basic',
+            iconUrl: 'icons/icon48.png',
+            title: 'yt-dl Error',
+            message: err.message || 'Daemon not running'
+          });
+        }
       });
     });
   }

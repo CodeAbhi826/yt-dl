@@ -965,7 +965,7 @@ class QueueBroadcaster:
                     self._broadcast(data)
             except Exception as e:
                 logger.error(f"Queue broadcast error: {e}")
-            time.sleep(1)
+            time.sleep(0.5)
 
     def _broadcast(self, data):
         with self.sub_lock:

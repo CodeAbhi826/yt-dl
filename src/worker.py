@@ -345,7 +345,7 @@ def run_download(job, download_dir):
 
                     now = time.time()
                     progress_changed = abs(job.progress - job.last_saved_progress) >= 1.0
-                    time_elapsed = now - job.last_update_time >= 1.0
+                    time_elapsed = now - job.last_update_time >= 0.5
 
                     if progress_changed or time_elapsed:
                         save_job(job)
